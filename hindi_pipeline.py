@@ -247,7 +247,7 @@ def process_articles(llm_loader, shard, num_shards, batch_size, prompts):
         compressed_summary = r[2]
         
         try:
-            logging.info(f"Processing ID: {article_id} ({idx + 1} of {len(chunk)}) | English Title: '{title[:45]}...'")
+            logging.info(f"Processing ID: {article_id} ({idx + 1} of {len(chunk_rows)}) | English Title: '{title[:45]}...'")
             
             # Decompress summary
             eng_summary = zlib.decompress(compressed_summary).decode('utf-8')
