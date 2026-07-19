@@ -169,25 +169,30 @@ def fallback_from_summary_hi(hindi_summary):
 def process_articles(llm_loader, shard, num_shards, batch_size, prompts):
     logging.info("--- Starting Article & Headline Translations Stage ---")
     
-    # 1. Fetch articles from Main DB A
+    # 1. Fetch article candidate IDs from Main DB A
     try:
         conn_a = get_db_connection()
         cursor_a = conn_a.cursor()
+        # Query ONLY the id column to minimize data transfer and read charges
         query = """
-            SELECT id, title, rephrased_article FROM articles
+            SELECT id FROM articles
             WHERE rephrased_article IS NOT NULL
               AND (id % ?) = ?
             ORDER BY id DESC
         """
         cursor_a.execute(query, (num_shards, shard))
         rows = cursor_a.fetchall()
-        conn_a.close()
     except Exception as e:
-        logging.critical(f"Failed to fetch articles from Main Database: {e}")
+        logging.critical(f"Failed to fetch candidate IDs from Main Database: {e}")
+        try:
+            conn_a.close()
+        except Exception:
+            pass
         return False, False
         
     if not rows:
         logging.info("No articles to translate.")
+        conn_a.close()
         return True, False
 
     # 2. Query completed translations in Database B to skip them
@@ -200,24 +205,43 @@ def process_articles(llm_loader, shard, num_shards, batch_size, prompts):
     except Exception as e:
         logging.critical(f"Failed to query translations from Database B: {e}")
         try:
+            conn_a.close()
             conn_b.close()
         except Exception:
             pass
         return False, False
 
     # Filter out completed ones
-    todo = [r for r in rows if r[0] not in completed_ids]
-    logging.info(f"Workload summary: Total in shard {len(rows)} | Completed: {len(completed_ids)} | Remaining to run: {len(todo)}")
+    todo_ids = [row[0] for row in rows if row[0] not in completed_ids]
+    logging.info(f"Workload summary: Total in shard {len(rows)} | Completed: {len(completed_ids)} | Remaining to run: {len(todo_ids)}")
     
-    if not todo:
+    if not todo_ids:
+        conn_a.close()
         conn_b.close()
         return True, False
 
+    chunk_ids = todo_ids[:batch_size]
+    has_more = len(todo_ids) > batch_size
+
+    # 3. Fetch full details (title, summary) only for the active chunk IDs
+    try:
+        placeholders = ",".join("?" for _ in chunk_ids)
+        detail_query = f"SELECT id, title, rephrased_article FROM articles WHERE id IN ({placeholders}) ORDER BY id DESC"
+        cursor_a.execute(detail_query, chunk_ids)
+        chunk_rows = cursor_a.fetchall()
+        conn_a.close()
+    except Exception as e:
+        logging.critical(f"Failed to fetch article details from Main Database: {e}")
+        try:
+            conn_a.close()
+            conn_b.close()
+        except Exception:
+            pass
+        return False, False
+
     llm = llm_loader()
-    chunk = todo[:batch_size]
-    has_more = len(todo) > batch_size
     
-    for idx, r in enumerate(chunk):
+    for idx, r in enumerate(chunk_rows):
         article_id = r[0]
         title = r[1]
         compressed_summary = r[2]
