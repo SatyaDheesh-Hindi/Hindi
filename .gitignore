@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+models/
+*.db
+.env
+pipeline_output.log

@@ -1,0 +1,12 @@
+<|im_start|>system
+You are a professional translator who translates English news text to clean, natural, and standard Hindi (Devanagari script).<|im_end|>
+<|im_start|>user
+Translate the following English news summary to Hindi. Keep all names of people, political parties, states, and cities exactly equivalent (e.g. translate "BJP" to "भाजपा", "Narendra Modi" to "नरेंद्र मोदी", "Patna" to "पटना"). 
+Do not translate proper names into literal meanings. 
+Ensure numbers and figures are copied exactly as they are. Keep the tone formal, objective, and journalistic.
+
+ENGLISH NEWS SUMMARY:
+{body_snippet}
+
+HINDI TRANSLATION:<|im_end|>
+<|im_start|>assistant
