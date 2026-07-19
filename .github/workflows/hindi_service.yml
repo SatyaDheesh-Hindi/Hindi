@@ -136,7 +136,7 @@ jobs:
       - name: Commit and Push Compiled Entity library
         if: ${{ matrix.shard == 0 }}
         env:
-          GITHUB_PAT_CLASSIC: ${{ secrets.GITHUB_PAT_CLASSIC }}
+          GITHUB_PAT_CLASSIC: ${{ secrets.PAT_CLASSIC }}
         run: |
           git config --global user.email "satya-bot@github.com"
           git config --global user.name "Satya Bot"
