@@ -61,6 +61,12 @@ jobs:
           SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
           SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
         run: |
+          echo "Debugging secret lengths..."
+          echo "Main DB URL length: ${#SATYA_DB_URL}"
+          echo "Main DB Token length: ${#SATYA_DB_TOKEN}"
+          echo "Trans DB URL length: ${#SATYA_TRANSLATION_DB_URL}"
+          echo "Trans DB Token length: ${#SATYA_TRANSLATION_DB_TOKEN}"
+
           echo "Verifying Main Database A connection..."
           URL_A=$(echo "$SATYA_DB_URL" | xargs)
           TOKEN_A=$(echo "$SATYA_DB_TOKEN" | xargs)
