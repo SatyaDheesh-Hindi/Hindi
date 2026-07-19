@@ -66,6 +66,43 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
 
+      - name: Validate Database Connections
+        env:
+          SATYA_DB_URL: ${{ secrets.SATYA_DB_URL }}
+          SATYA_DB_TOKEN: ${{ secrets.SATYA_DB_TOKEN }}
+          SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
+          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
+        run: |
+          echo "Verifying Main Database A connection..."
+          URL_A=$(echo "$SATYA_DB_URL" | xargs)
+          TOKEN_A=$(echo "$SATYA_DB_TOKEN" | xargs)
+          HTTP_URL_A="${URL_A/libsql:\/\//https:\/\/}"
+          RESPONSE_A=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN_A" \
+            -H "Content-Type: application/json" \
+            -d '{"requests":[{"type":"execute","stmt":{"sql":"SELECT 1"}}]}' \
+            "$HTTP_URL_A/v2/pipeline")
+          if [ "$RESPONSE_A" -ne 200 ]; then
+            echo "::error::Main Database A connection failed with HTTP status code $RESPONSE_A. Check your SATYA_DB_URL and SATYA_DB_TOKEN secrets."
+            exit 1
+          fi
+          echo "Main Database A connection verified successfully!"
+
+          echo "Verifying Translation Database B connection..."
+          URL_B=$(echo "$SATYA_TRANSLATION_DB_URL" | xargs)
+          TOKEN_B=$(echo "$SATYA_TRANSLATION_DB_TOKEN" | xargs)
+          HTTP_URL_B="${URL_B/libsql:\/\//https:\/\/}"
+          RESPONSE_B=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN_B" \
+            -H "Content-Type: application/json" \
+            -d '{"requests":[{"type":"execute","stmt":{"sql":"SELECT 1"}}]}' \
+            "$HTTP_URL_B/v2/pipeline")
+          if [ "$RESPONSE_B" -ne 200 ]; then
+            echo "::error::Translation Database B connection failed with HTTP status code $RESPONSE_B. Check your SATYA_TRANSLATION_DB_URL and SATYA_TRANSLATION_DB_TOKEN secrets."
+            exit 1
+          fi
+          echo "Translation Database B connection verified successfully!"
+
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
