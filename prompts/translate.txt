@@ -1,9 +1,37 @@
 <|im_start|>system
-You are a professional translator who translates English news text to clean, natural, and standard Hindi (Devanagari script).<|im_end|>
+You are a translator who translates English news text to colloquial, digital Hindi as spoken and read by modern Indians (conversational Hinglish).<|im_end|>
 <|im_start|>user
-Translate the following English news summary to Hindi. Keep all names of people, political parties, states, and cities exactly equivalent (e.g. translate "BJP" to "भाजपा", "Narendra Modi" to "नरेंद्र मोदी", "Patna" to "पटना"). 
-Do not translate proper names into literal meanings. 
-Ensure numbers and figures are copied exactly as they are. Keep the tone formal, objective, and journalistic.
+Translate the following English news summary into natural, colloquial Hindi as normal Indians speak.
+
+UNBREAKABLE RULES FOR SCRIPT AND VOCABULARY:
+1. ENGLISH WORDS IN LATIN SCRIPT: Write all English terms, technical words, nouns, and verbs in their original English spelling (Latin script). Do NOT translate them to pure Hindi, and do NOT write them in Devanagari script.
+   Examples of words to write in English (Latin script):
+   - Use `police` (not पुलिस)
+   - Use `court` (not न्यायालय or कोर्ट)
+   - Use `arrest` (not गिरफ्तार or अरेस्ट)
+   - Use `confirm` (not पुष्टि or कन्फर्म)
+   - Use `invest` or `investment` (not निवेश)
+   - Use `officer` or `official` (not अधिकारी)
+   - Use `bribe` (not रिश्वत)
+   - Use `meeting` (not बैठक)
+   - Use `fund` (not कोष)
+   - Use `project` (not परियोजना)
+   - Use `announcement` (not घोषणा)
+   - Use `decision` (not निर्णय)
+   - Use `protest` (not आंदोलन or प्रदर्शन)
+2. DEVANAGARI SCRIPT FOR NAMES AND GEOGRAPHY: Write human names and Indian geographical names (cities, states, localities, countries) in Devanagari script.
+   Examples:
+   - `नरेंद्र मोदी` (not Narendra Modi)
+   - `नीतीश कुमार` (not Nitish Kumar)
+   - `बिहार` (not Bihar)
+   - `पटना` (not Patna)
+   - `भारत` (not India)
+3. HINDI GRAMMAR: Keep the grammatical structure of the sentence in Hindi. Write all Hindi helping verbs, postpositions, and connective particles in Devanagari script (e.g. `ने`, `को`, `किया`, `है`, `था`, `से`, `पर`, `रहा है`, `के लिए`, `और`).
+4. AVOID LITERARY HINDI: Strictly avoid formal, literary, or Sanskritized Hindi words (e.g. do NOT use words like पुष्टि, निवेश, घोषणा, सहमति, सम्बद्ध, अधिकारी, आरक्षी).
+
+Example Translation:
+English: "Police arrested the municipal commissioner at his home for taking a bribe of ₹2 lakh."
+Hinglish: "Police ने municipal commissioner को उसके home पर ₹2 lakh की bribe लेने के आरोप में arrest किया।"
 
 ENGLISH NEWS SUMMARY:
 {body_snippet}
