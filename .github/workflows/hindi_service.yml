@@ -54,18 +54,6 @@ jobs:
       contents: write
 
     steps:
-      - name: Free Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
-
       - name: Validate Database Connections
         env:
           SATYA_DB_URL: ${{ secrets.SATYA_DB_URL }}
@@ -102,6 +90,18 @@ jobs:
             exit 1
           fi
           echo "Translation Database B connection verified successfully!"
+
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
