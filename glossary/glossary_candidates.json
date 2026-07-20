@@ -1,0 +1,1752 @@
+[
+  {
+    "token": "है।",
+    "freq": 275,
+    "gloss": "is.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "करने",
+    "freq": 182,
+    "gloss": "to do",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "हैं।",
+    "freq": 120,
+    "gloss": "are.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "हुए",
+    "freq": 99,
+    "gloss": "occupied",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "जुलाई",
+    "freq": 98,
+    "gloss": "July",
+    "suggest_latin": "july",
+    "flag": true
+  },
+  {
+    "token": "कारण",
+    "freq": 98,
+    "gloss": "reason",
+    "suggest_latin": "reason",
+    "flag": true
+  },
+  {
+    "token": "किया।",
+    "freq": 95,
+    "gloss": "I did.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "करते",
+    "freq": 84,
+    "gloss": "used to",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "जिसमें",
+    "freq": 78,
+    "gloss": "in which",
+    "suggest_latin": "in which",
+    "flag": true
+  },
+  {
+    "token": "रूप",
+    "freq": 76,
+    "gloss": "form",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "शामिल",
+    "freq": 74,
+    "gloss": "included",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "की।",
+    "freq": 72,
+    "gloss": "of the key.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "गया।",
+    "freq": 71,
+    "gloss": "It is gone.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "दिया",
+    "freq": 67,
+    "gloss": "given",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "द्वारा",
+    "freq": 67,
+    "gloss": "by",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अधिक",
+    "freq": 63,
+    "gloss": "more",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "खिलाफ",
+    "freq": 61,
+    "gloss": "against",
+    "suggest_latin": "against",
+    "flag": true
+  },
+  {
+    "token": "पुलिस",
+    "freq": 61,
+    "gloss": "police",
+    "suggest_latin": "police",
+    "flag": true
+  },
+  {
+    "token": "रुपये",
+    "freq": 61,
+    "gloss": "rupees",
+    "suggest_latin": "rupees",
+    "flag": true
+  },
+  {
+    "token": "विरोध",
+    "freq": 61,
+    "gloss": "opposition",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "उन्होंने",
+    "freq": 60,
+    "gloss": "they did",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "नहीं",
+    "freq": 59,
+    "gloss": "not",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अपने",
+    "freq": 57,
+    "gloss": "your",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बीच",
+    "freq": 56,
+    "gloss": "middle",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "दिया।",
+    "freq": 56,
+    "gloss": "I got it.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "करना",
+    "freq": 54,
+    "gloss": "to do",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सोमवार",
+    "freq": 53,
+    "gloss": "Monday",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "था।",
+    "freq": 52,
+    "gloss": "was.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "वाले",
+    "freq": 51,
+    "gloss": "white",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "उनके",
+    "freq": 50,
+    "gloss": "their",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "होने",
+    "freq": 50,
+    "gloss": "being",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "लेकिन",
+    "freq": 50,
+    "gloss": "But",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "जैसे",
+    "freq": 49,
+    "gloss": "such as",
+    "suggest_latin": "such as",
+    "flag": true
+  },
+  {
+    "token": "अमेरिकी",
+    "freq": 49,
+    "gloss": "American",
+    "suggest_latin": "american",
+    "flag": true
+  },
+  {
+    "token": "करता",
+    "freq": 48,
+    "gloss": "does",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "वृद्धि",
+    "freq": 47,
+    "gloss": "increase",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "मांग",
+    "freq": 47,
+    "gloss": "demands",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "शुरू",
+    "freq": 47,
+    "gloss": "start",
+    "suggest_latin": "start",
+    "flag": true
+  },
+  {
+    "token": "किए",
+    "freq": 44,
+    "gloss": "made",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "भारत",
+    "freq": 44,
+    "gloss": "India",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "मंत्री",
+    "freq": 43,
+    "gloss": "minister",
+    "suggest_latin": "minister",
+    "flag": true
+  },
+  {
+    "token": "करोड़",
+    "freq": 43,
+    "gloss": "million",
+    "suggest_latin": "million",
+    "flag": true
+  },
+  {
+    "token": "ईरान",
+    "freq": 42,
+    "gloss": "Iran",
+    "suggest_latin": "iran",
+    "flag": true
+  },
+  {
+    "token": "हुई",
+    "freq": 42,
+    "gloss": "occurred",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "वर्ष",
+    "freq": 41,
+    "gloss": "year",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "उन्हें",
+    "freq": 40,
+    "gloss": "them",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "स्पेन",
+    "freq": 40,
+    "gloss": "Spain",
+    "suggest_latin": "spain",
+    "flag": true
+  },
+  {
+    "token": "कहा",
+    "freq": 40,
+    "gloss": "said",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "जिससे",
+    "freq": 39,
+    "gloss": "by which",
+    "suggest_latin": "by which",
+    "flag": true
+  },
+  {
+    "token": "समय",
+    "freq": 39,
+    "gloss": "time",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बावजूद",
+    "freq": 39,
+    "gloss": "despite",
+    "suggest_latin": "despite",
+    "flag": true
+  },
+  {
+    "token": "सरकार",
+    "freq": 39,
+    "gloss": "government",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "दिल्ली",
+    "freq": 38,
+    "gloss": "from Delhi",
+    "suggest_latin": "from delhi",
+    "flag": true
+  },
+  {
+    "token": "जांच",
+    "freq": 37,
+    "gloss": "search",
+    "suggest_latin": "search",
+    "flag": true
+  },
+  {
+    "token": "गई।",
+    "freq": 37,
+    "gloss": "It is gone.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अपनी",
+    "freq": 37,
+    "gloss": "his own",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सुरक्षा",
+    "freq": 37,
+    "gloss": "security",
+    "suggest_latin": "security",
+    "flag": true
+  },
+  {
+    "token": "प्रदर्शन",
+    "freq": 37,
+    "gloss": "display",
+    "suggest_latin": "display",
+    "flag": true
+  },
+  {
+    "token": "शिक्षा",
+    "freq": 37,
+    "gloss": "education",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "विश्व",
+    "freq": 36,
+    "gloss": "world",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अमेरिका",
+    "freq": 36,
+    "gloss": "United States",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "जबकि",
+    "freq": 36,
+    "gloss": "while",
+    "suggest_latin": "while",
+    "flag": true
+  },
+  {
+    "token": "जारी",
+    "freq": 36,
+    "gloss": "release",
+    "suggest_latin": "release",
+    "flag": true
+  },
+  {
+    "token": "राज्य",
+    "freq": 36,
+    "gloss": "state",
+    "suggest_latin": "state",
+    "flag": true
+  },
+  {
+    "token": "उच्च",
+    "freq": 36,
+    "gloss": "high",
+    "suggest_latin": "high",
+    "flag": true
+  },
+  {
+    "token": "नेतृत्व",
+    "freq": 33,
+    "gloss": "leadership",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "लोगों",
+    "freq": 33,
+    "gloss": "people",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "रहा",
+    "freq": 32,
+    "gloss": "remained",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "आरोप",
+    "freq": 32,
+    "gloss": "charge",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "उनकी",
+    "freq": 31,
+    "gloss": "their",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "उपयोग",
+    "freq": 31,
+    "gloss": "use",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "भारतीय",
+    "freq": 30,
+    "gloss": "Indian",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "संसद",
+    "freq": 30,
+    "gloss": "parliament",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "वर्षीय",
+    "freq": 29,
+    "gloss": "year",
+    "suggest_latin": "year",
+    "flag": true
+  },
+  {
+    "token": "सहित",
+    "freq": 28,
+    "gloss": "including",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "रविवार",
+    "freq": 28,
+    "gloss": "Sunday",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अन्य",
+    "freq": 28,
+    "gloss": "other",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "समर्थन",
+    "freq": 28,
+    "gloss": "support",
+    "suggest_latin": "support",
+    "flag": true
+  },
+  {
+    "token": "जाने",
+    "freq": 27,
+    "gloss": "know",
+    "suggest_latin": "know",
+    "flag": true
+  },
+  {
+    "token": "साल",
+    "freq": 27,
+    "gloss": "year",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "मौत",
+    "freq": 27,
+    "gloss": "death",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सीजेपी",
+    "freq": 27,
+    "gloss": "CJP",
+    "suggest_latin": "cjp",
+    "flag": true
+  },
+  {
+    "token": "रहे",
+    "freq": 27,
+    "gloss": "remained",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "लाभ",
+    "freq": 27,
+    "gloss": "benefit",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "राजनीतिक",
+    "freq": 26,
+    "gloss": "political",
+    "suggest_latin": "political",
+    "flag": true
+  },
+  {
+    "token": "हमले",
+    "freq": 26,
+    "gloss": "attack",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "गिरफ्तार",
+    "freq": 26,
+    "gloss": "arrested",
+    "suggest_latin": "arrested",
+    "flag": true
+  },
+  {
+    "token": "योजना",
+    "freq": 26,
+    "gloss": "plan",
+    "suggest_latin": "plan",
+    "flag": true
+  },
+  {
+    "token": "हुआ",
+    "freq": 26,
+    "gloss": "occurred",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "पार्टी",
+    "freq": 26,
+    "gloss": "party",
+    "suggest_latin": "party",
+    "flag": true
+  },
+  {
+    "token": "वाली",
+    "freq": 25,
+    "gloss": "whale",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "दी।",
+    "freq": 25,
+    "gloss": "I did.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "राष्ट्रपति",
+    "freq": 25,
+    "gloss": "President",
+    "suggest_latin": "president",
+    "flag": true
+  },
+  {
+    "token": "माध्यम",
+    "freq": 25,
+    "gloss": "medium",
+    "suggest_latin": "medium",
+    "flag": true
+  },
+  {
+    "token": "प्रदर्शनकारियों",
+    "freq": 25,
+    "gloss": "protesters",
+    "suggest_latin": "protesters",
+    "flag": true
+  },
+  {
+    "token": "अधिकारियों",
+    "freq": 25,
+    "gloss": "officers",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "उद्देश्य",
+    "freq": 25,
+    "gloss": "purpose",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "ट्रम्प",
+    "freq": 24,
+    "gloss": "trump",
+    "suggest_latin": "trump",
+    "flag": true
+  },
+  {
+    "token": "न्यायालय",
+    "freq": 24,
+    "gloss": "court",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "करती",
+    "freq": 24,
+    "gloss": "used to",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सामना",
+    "freq": 24,
+    "gloss": "face",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सूचना",
+    "freq": 23,
+    "gloss": "information",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बारे",
+    "freq": 23,
+    "gloss": "about",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "कथित",
+    "freq": 23,
+    "gloss": "alleged",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अर्जेंटीना",
+    "freq": 23,
+    "gloss": "the Argentine",
+    "suggest_latin": "the argentine",
+    "flag": true
+  },
+  {
+    "token": "गए।",
+    "freq": 23,
+    "gloss": "They're gone.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "शुद्ध",
+    "freq": 23,
+    "gloss": "clean",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "जोर",
+    "freq": 22,
+    "gloss": "emphasis",
+    "suggest_latin": "emphasis",
+    "flag": true
+  },
+  {
+    "token": "संघर्ष",
+    "freq": 22,
+    "gloss": "struggle",
+    "suggest_latin": "struggle",
+    "flag": true
+  },
+  {
+    "token": "रही",
+    "freq": 22,
+    "gloss": "remained",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "थे।",
+    "freq": 22,
+    "gloss": "were.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "कार्रवाई",
+    "freq": 22,
+    "gloss": "action",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "घोषणा",
+    "freq": 21,
+    "gloss": "announcement",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "मुद्दों",
+    "freq": 21,
+    "gloss": "issues",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "पास",
+    "freq": 21,
+    "gloss": "pass",
+    "suggest_latin": "pass",
+    "flag": true
+  },
+  {
+    "token": "डॉलर",
+    "freq": 21,
+    "gloss": "currency",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रतिशत",
+    "freq": 21,
+    "gloss": "percent",
+    "suggest_latin": "percent",
+    "flag": true
+  },
+  {
+    "token": "क्योंकि",
+    "freq": 21,
+    "gloss": "because",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "स्वास्थ्य",
+    "freq": 21,
+    "gloss": "health",
+    "suggest_latin": "health",
+    "flag": true
+  },
+  {
+    "token": "वांगचुक",
+    "freq": 21,
+    "gloss": "whangchuck",
+    "suggest_latin": "whangchuck",
+    "flag": true
+  },
+  {
+    "token": "लीक",
+    "freq": 21,
+    "gloss": "leak",
+    "suggest_latin": "leak",
+    "flag": true
+  },
+  {
+    "token": "प्रधान",
+    "freq": 21,
+    "gloss": "chief",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "तमिलनाडु",
+    "freq": 21,
+    "gloss": "from Tamil Nadu",
+    "suggest_latin": "from tamil nadu",
+    "flag": true
+  },
+  {
+    "token": "जून",
+    "freq": 20,
+    "gloss": "June",
+    "suggest_latin": "june",
+    "flag": true
+  },
+  {
+    "token": "प्रकाश",
+    "freq": 20,
+    "gloss": "light",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "पूर्व",
+    "freq": 20,
+    "gloss": "former",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "जीत",
+    "freq": 20,
+    "gloss": "win",
+    "suggest_latin": "win",
+    "flag": true
+  },
+  {
+    "token": "देते",
+    "freq": 20,
+    "gloss": "give",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "पता",
+    "freq": 20,
+    "gloss": "address",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "तनाव",
+    "freq": 20,
+    "gloss": "stress",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "मार्च",
+    "freq": 20,
+    "gloss": "March",
+    "suggest_latin": "march",
+    "flag": true
+  },
+  {
+    "token": "जनता",
+    "freq": 20,
+    "gloss": "public",
+    "suggest_latin": "public",
+    "flag": true
+  },
+  {
+    "token": "चेतावनी",
+    "freq": 20,
+    "gloss": "warning",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "स्थानीय",
+    "freq": 20,
+    "gloss": "local",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "तहत",
+    "freq": 20,
+    "gloss": "under",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "लाख",
+    "freq": 19,
+    "gloss": "million",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "महत्वपूर्ण",
+    "freq": 19,
+    "gloss": "important",
+    "suggest_latin": "important",
+    "flag": true
+  },
+  {
+    "token": "देने",
+    "freq": 19,
+    "gloss": "giving",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "आलोचना",
+    "freq": 19,
+    "gloss": "criticism",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रदर्शनों",
+    "freq": 19,
+    "gloss": "exhibitions",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रधानमंत्री",
+    "freq": 19,
+    "gloss": "Prime Minister",
+    "suggest_latin": "prime minister",
+    "flag": true
+  },
+  {
+    "token": "धर्मेंद्र",
+    "freq": 19,
+    "gloss": "mother",
+    "suggest_latin": "mother",
+    "flag": true
+  },
+  {
+    "token": "नीट",
+    "freq": 19,
+    "gloss": "neat",
+    "suggest_latin": "neat",
+    "flag": true
+  },
+  {
+    "token": "स्थान",
+    "freq": 19,
+    "gloss": "location",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "केंद्रीय",
+    "freq": 19,
+    "gloss": "central",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रभावित",
+    "freq": 18,
+    "gloss": "affected",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अस्पताल",
+    "freq": 18,
+    "gloss": "hospital",
+    "suggest_latin": "hospital",
+    "flag": true
+  },
+  {
+    "token": "काम",
+    "freq": 18,
+    "gloss": "work",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "लक्ष्य",
+    "freq": 18,
+    "gloss": "goal",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रमुख",
+    "freq": 18,
+    "gloss": "chief",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "थी।",
+    "freq": 18,
+    "gloss": "was.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "तेल",
+    "freq": 18,
+    "gloss": "oil",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "आदेश",
+    "freq": 18,
+    "gloss": "command",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "हमलों",
+    "freq": 18,
+    "gloss": "attacks",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "यात्रा",
+    "freq": 18,
+    "gloss": "travel",
+    "suggest_latin": "travel",
+    "flag": true
+  },
+  {
+    "token": "तरह",
+    "freq": 18,
+    "gloss": "kind of",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "इस्तीफे",
+    "freq": 18,
+    "gloss": "resignation",
+    "suggest_latin": "resignation",
+    "flag": true
+  },
+  {
+    "token": "सकता",
+    "freq": 18,
+    "gloss": "could",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "लगाया",
+    "freq": 18,
+    "gloss": "planted",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "भारी",
+    "freq": 17,
+    "gloss": "heavy",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "समाप्त",
+    "freq": 17,
+    "gloss": "finished",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "फाइनल",
+    "freq": 17,
+    "gloss": "final",
+    "suggest_latin": "final",
+    "flag": true
+  },
+  {
+    "token": "आरोपों",
+    "freq": 17,
+    "gloss": "charges",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "क्षेत्र",
+    "freq": 17,
+    "gloss": "area",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "तीन",
+    "freq": 17,
+    "gloss": "three",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "पांच",
+    "freq": 17,
+    "gloss": "five",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सुधार",
+    "freq": 17,
+    "gloss": "reform",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "मुख्यमंत्री",
+    "freq": 17,
+    "gloss": "chief minister",
+    "suggest_latin": "chief minister",
+    "flag": true
+  },
+  {
+    "token": "मामले",
+    "freq": 16,
+    "gloss": "case",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अतिरिक्त",
+    "freq": 16,
+    "gloss": "extra",
+    "suggest_latin": "extra",
+    "flag": true
+  },
+  {
+    "token": "युद्ध",
+    "freq": 16,
+    "gloss": "war",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "घायल",
+    "freq": 16,
+    "gloss": "wounded",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "फिर",
+    "freq": 16,
+    "gloss": "Then",
+    "suggest_latin": "then",
+    "flag": true
+  },
+  {
+    "token": "परीक्षा",
+    "freq": 16,
+    "gloss": "examination",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "स्तर",
+    "freq": 16,
+    "gloss": "level",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "चर्चा",
+    "freq": 16,
+    "gloss": "discussion",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "राष्ट्रीय",
+    "freq": 16,
+    "gloss": "national",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "कमी",
+    "freq": 16,
+    "gloss": "shortage",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "आग्रह",
+    "freq": 15,
+    "gloss": "urge",
+    "suggest_latin": "urge",
+    "flag": true
+  },
+  {
+    "token": "रिपोर्ट",
+    "freq": 15,
+    "gloss": "report",
+    "suggest_latin": "report",
+    "flag": true
+  },
+  {
+    "token": "बिना",
+    "freq": 15,
+    "gloss": "without",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "कुछ",
+    "freq": 15,
+    "gloss": "some",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "डोनाल्ड",
+    "freq": 15,
+    "gloss": "what is it?",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "घटना",
+    "freq": 15,
+    "gloss": "event",
+    "suggest_latin": "event",
+    "flag": true
+  },
+  {
+    "token": "कदम",
+    "freq": 15,
+    "gloss": "step",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "कोई",
+    "freq": 15,
+    "gloss": "not",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "दर्ज",
+    "freq": 15,
+    "gloss": "record",
+    "suggest_latin": "record",
+    "flag": true
+  },
+  {
+    "token": "सोनम",
+    "freq": 15,
+    "gloss": "sonam",
+    "suggest_latin": "sonam",
+    "flag": true
+  },
+  {
+    "token": "स्थिति",
+    "freq": 15,
+    "gloss": "condition",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "वैश्विक",
+    "freq": 15,
+    "gloss": "global",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बंद",
+    "freq": 15,
+    "gloss": "closed",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "इजरायल",
+    "freq": 15,
+    "gloss": "the Israelites",
+    "suggest_latin": "the israelites",
+    "flag": true
+  },
+  {
+    "token": "एआई",
+    "freq": 15,
+    "gloss": "AI",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "परिवार",
+    "freq": 15,
+    "gloss": "family",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सैन्य",
+    "freq": 15,
+    "gloss": "military",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बार",
+    "freq": 15,
+    "gloss": "bar",
+    "suggest_latin": "bar",
+    "flag": true
+  },
+  {
+    "token": "ध्यान",
+    "freq": 14,
+    "gloss": "attention",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रतिक्रिया",
+    "freq": 14,
+    "gloss": "reaction",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "रहने",
+    "freq": 14,
+    "gloss": "stay",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "व्यापक",
+    "freq": 14,
+    "gloss": "extensive",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अदालत",
+    "freq": 14,
+    "gloss": "court",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "चार",
+    "freq": 14,
+    "gloss": "four",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "मृत्यु",
+    "freq": 14,
+    "gloss": "death",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "हासिल",
+    "freq": 14,
+    "gloss": "accomplished",
+    "suggest_latin": "accomplished",
+    "flag": true
+  },
+  {
+    "token": "सेवा",
+    "freq": 14,
+    "gloss": "service",
+    "suggest_latin": "service",
+    "flag": true
+  },
+  {
+    "token": "पिछले",
+    "freq": 14,
+    "gloss": "previous",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "चिंताओं",
+    "freq": 14,
+    "gloss": "worries",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "तर्क",
+    "freq": 14,
+    "gloss": "reasoning",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "दावा",
+    "freq": 14,
+    "gloss": "claim",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सऊदी",
+    "freq": 14,
+    "gloss": "Spanish",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "लागत",
+    "freq": 14,
+    "gloss": "cost",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "कार्यकर्ता",
+    "freq": 14,
+    "gloss": "worker",
+    "suggest_latin": "worker",
+    "flag": true
+  },
+  {
+    "token": "हत्या",
+    "freq": 14,
+    "gloss": "murder",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अध्यक्ष",
+    "freq": 14,
+    "gloss": "chairman",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बना",
+    "freq": 14,
+    "gloss": "made",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "उसे",
+    "freq": 14,
+    "gloss": "him",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "मारे",
+    "freq": 14,
+    "gloss": "killed",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "सत्र",
+    "freq": 14,
+    "gloss": "session",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "संशोधन",
+    "freq": 13,
+    "gloss": "amendment",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "नगर",
+    "freq": 13,
+    "gloss": "city",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अगस्त",
+    "freq": 13,
+    "gloss": "August",
+    "suggest_latin": "august",
+    "flag": true
+  },
+  {
+    "token": "जिसके",
+    "freq": 13,
+    "gloss": "of which",
+    "suggest_latin": "of which",
+    "flag": true
+  },
+  {
+    "token": "विजय",
+    "freq": 13,
+    "gloss": "victory",
+    "suggest_latin": "victory",
+    "flag": true
+  },
+  {
+    "token": "किसी",
+    "freq": 13,
+    "gloss": "any",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "हुआ।",
+    "freq": 13,
+    "gloss": "It happened.",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "संयुक्त",
+    "freq": 13,
+    "gloss": "joint",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बचाव",
+    "freq": 13,
+    "gloss": "rescue",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बजे",
+    "freq": 13,
+    "gloss": "p. m.",
+    "suggest_latin": "p. m.",
+    "flag": true
+  },
+  {
+    "token": "सुबह",
+    "freq": 13,
+    "gloss": "in the morning",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "केवल",
+    "freq": 13,
+    "gloss": "only",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "छात्र",
+    "freq": 13,
+    "gloss": "student",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "इसके",
+    "freq": 13,
+    "gloss": "its",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "रोकने",
+    "freq": 13,
+    "gloss": "stop",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रति",
+    "freq": 13,
+    "gloss": "copy",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "अरब",
+    "freq": 13,
+    "gloss": "Arab",
+    "suggest_latin": "arab",
+    "flag": true
+  },
+  {
+    "token": "सभी",
+    "freq": 13,
+    "gloss": "all",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "आगे",
+    "freq": 13,
+    "gloss": "forward",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "पुष्टि",
+    "freq": 13,
+    "gloss": "confirmation",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रदान",
+    "freq": 13,
+    "gloss": "provided",
+    "suggest_latin": "provided",
+    "flag": true
+  },
+  {
+    "token": "करके",
+    "freq": 13,
+    "gloss": "by",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "दोनों",
+    "freq": 13,
+    "gloss": "both",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "बनाए",
+    "freq": 13,
+    "gloss": "created",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "वित्त",
+    "freq": 13,
+    "gloss": "finance",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "प्रबंधन",
+    "freq": 12,
+    "gloss": "management",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "कार्य",
+    "freq": 12,
+    "gloss": "work",
+    "suggest_latin": "work",
+    "flag": true
+  },
+  {
+    "token": "केंद्रित",
+    "freq": 12,
+    "gloss": "concentrated",
+    "suggest_latin": "concentrated",
+    "flag": true
+  },
+  {
+    "token": "हाल",
+    "freq": 12,
+    "gloss": "recent",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "डाला",
+    "freq": 12,
+    "gloss": "inserted",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "इनकार",
+    "freq": 12,
+    "gloss": "denial",
+    "suggest_latin": "",
+    "flag": false
+  },
+  {
+    "token": "जहां",
+    "freq": 12,
+    "gloss": "where",
+    "suggest_latin": "where",
+    "flag": true
+  }
+]
