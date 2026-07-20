@@ -1,0 +1,69 @@
+name: Glossary Miner (Phase 2 setup)
+
+# Samples the article corpus, translates with NLLB, and produces a ranked,
+# reviewable list of Devanagari->Latin glossary candidates. Run occasionally
+# to refresh candidates; not part of the production translation loop.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sample:
+        description: 'How many recent articles to sample'
+        required: false
+        default: '300'
+      top_n:
+        description: 'How many top tokens to report'
+        required: false
+        default: '250'
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install "transformers==4.46.1" "tokenizers<0.21" sentencepiece sacremoses libsql
+
+      - name: Run miner
+        env:
+          SATYA_DB_URL: ${{ secrets.SATYA_DB_URL }}
+          SATYA_DB_TOKEN: ${{ secrets.SATYA_DB_TOKEN }}
+          GLOSSARY_SAMPLE: ${{ github.event.inputs.sample }}
+          GLOSSARY_TOP_N: ${{ github.event.inputs.top_n }}
+        run: |
+          cd glossary
+          python3 mine_glossary.py
+
+      - name: Commit candidates
+        run: |
+          git config user.email "satya-bot@github.com"
+          git config user.name "Satya Bot"
+          git add glossary/glossary_candidates.md glossary/glossary_candidates.json
+          if ! git diff --staged --quiet; then
+            git commit -m "Refresh glossary candidates"
+            git pull --rebase origin main || true
+            git push
+          else
+            echo "No candidate changes."
+          fi
+
+      - name: Upload candidates artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: glossary-candidates
+          path: |
+            glossary/glossary_candidates.md
+            glossary/glossary_candidates.json
