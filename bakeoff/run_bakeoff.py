@@ -181,11 +181,23 @@ def main():
     which = sys.argv[1] if len(sys.argv) > 1 else "both"
     results = {}
     if which in ("indictrans2", "both"):
-        print("Loading IndicTrans2...", flush=True)
-        results["IndicTrans2-1B"] = evaluate(IndicTrans2(), data)
+        try:
+            print("Loading IndicTrans2...", flush=True)
+            results["IndicTrans2-1B"] = evaluate(IndicTrans2(), data)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            print(f"!! IndicTrans2 failed: {e}", flush=True)
     if which in ("nllb", "both"):
-        print("Loading NLLB...", flush=True)
-        results["NLLB-1.3B"] = evaluate(NLLB(), data)
+        try:
+            print("Loading NLLB...", flush=True)
+            results["NLLB-1.3B"] = evaluate(NLLB(), data)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            print(f"!! NLLB failed: {e}", flush=True)
+
+    if not results:
+        print("Both models failed — nothing to report.", flush=True)
+        sys.exit(1)
 
     json.dump(results, open(os.path.join(os.path.dirname(INPUT_PATH), "results.json"), "w"),
               ensure_ascii=False, indent=2)
