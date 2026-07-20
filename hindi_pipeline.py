@@ -28,7 +28,7 @@ logging.basicConfig(
 # --- CONFIGURATION ---
 # ==============================================================================
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-MODEL_PATH = os.path.join(MODEL_DIR, "Qwen2.5-7B-Instruct-Q4_K_M.gguf")
+MODEL_PATH = os.path.join(MODEL_DIR, "Qwen2.5-14B-Instruct-Q5_K_M.gguf")
 
 def load_env():
     env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
@@ -90,15 +90,15 @@ def load_llm():
     from llama_cpp import Llama
     if not os.path.exists(MODEL_PATH):
         os.makedirs(MODEL_DIR, exist_ok=True)
-        logging.info("Downloading Qwen 7B GGUF model...")
+        logging.info("Downloading Qwen 14B GGUF model...")
         from huggingface_hub import hf_hub_download
         hf_hub_download(
-            repo_id='bartowski/Qwen2.5-7B-Instruct-GGUF',
-            filename='Qwen2.5-7B-Instruct-Q4_K_M.gguf',
+            repo_id='bartowski/Qwen2.5-14B-Instruct-GGUF',
+            filename='Qwen2.5-14B-Instruct-Q5_K_M.gguf',
             local_dir=MODEL_DIR,
             local_dir_use_symlinks=False
         )
-    logging.info(f"Loading Qwen 7B model from {MODEL_PATH}...")
+    logging.info(f"Loading Qwen 14B model from {MODEL_PATH}...")
     llm = Llama(
         model_path=MODEL_PATH,
         n_ctx=4096,
@@ -130,6 +130,7 @@ def translate_text(llm, translate_prompt_template, body_snippet):
         formatted_prompt,
         max_tokens=800,
         temperature=0.1,
+        repeat_penalty=1.15,
         stop=["<|im_end|>", "<|im_start|>"],
         echo=False
     )
@@ -141,6 +142,7 @@ def translate_short(llm, translate_short_template, text):
         formatted_prompt,
         max_tokens=150,
         temperature=0.1,
+        repeat_penalty=1.15,
         stop=["<|im_end|>", "<|im_start|>"],
         echo=False
     )
@@ -262,8 +264,9 @@ def process_articles(llm_loader, shard, num_shards, batch_size, prompts):
             headline_prompt = prompts['headline'].format(body_snippet=hindi_summary)
             response = llm(
                 headline_prompt,
-                max_tokens=60,
+                max_tokens=150,
                 top_p=0.9,
+                repeat_penalty=1.15,
                 stop=["<|im_end|>", "ARTICLE:", "<|im_start|>"],
                 temperature=0.4,
                 echo=False
@@ -573,7 +576,7 @@ def main():
     
     shard = args.shard if args.shard is not None else (int(os.environ.get('SHARD_ID')) if os.environ.get('SHARD_ID') is not None else 0)
     num_shards = args.num_shards if args.num_shards != 1 else (int(os.environ.get('NUM_SHARDS')) if os.environ.get('NUM_SHARDS') is not None else 1)
-    batch_size = 5 if args.test_run else int(os.environ.get("TRANSLATION_BATCH_SIZE", 15))
+    batch_size = 5 if args.test_run else int(os.environ.get("TRANSLATION_BATCH_SIZE", 10))
     
     # Load Prompt Templates
     prompt_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")

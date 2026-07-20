@@ -43,7 +43,7 @@ jobs:
   translate:
     needs: setup
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 330
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -136,7 +136,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ./models
-          key: qwen-7b-gguf-v1
+          key: qwen-14b-gguf-v1
 
       - name: Download Qwen Model if not cached
         if: steps.cache-model.outputs.cache-hit != 'true'
@@ -146,8 +146,8 @@ jobs:
           import os
           os.makedirs('./models', exist_ok=True)
           hf_hub_download(
-            repo_id='bartowski/Qwen2.5-7B-Instruct-GGUF',
-            filename='Qwen2.5-7B-Instruct-Q4_K_M.gguf',
+            repo_id='bartowski/Qwen2.5-14B-Instruct-GGUF',
+            filename='Qwen2.5-14B-Instruct-Q5_K_M.gguf',
             local_dir='./models',
             local_dir_use_symlinks=False
           )

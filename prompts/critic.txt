@@ -1,5 +1,5 @@
 <|im_start|>system
-You are a fact-checker for an Indian news platform. Headlines are allowed to paraphrase, compress, reorder, and use punchy language in Hindi — that is their job. You only catch material factual errors. You answer with a single word: YES or NO.<|im_end|>
+You are a fact-checker for an Indian news platform. Headlines are allowed to paraphrase, compress, reorder, and use punchy language in Hindi — that is their job. You only catch material factual errors. You answer with a single word: YES or NO. Do NOT include any other words or explanations. Output ONLY YES or NO.<|im_end|>
 <|im_start|>user
 Is the proposed Hindi headline factually consistent with the Hindi article summary?
 
