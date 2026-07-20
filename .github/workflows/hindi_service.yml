@@ -68,8 +68,8 @@ jobs:
           echo "Trans DB Token length: ${#SATYA_TRANSLATION_DB_TOKEN}"
 
           echo "Verifying Main Database A connection..."
-          URL_A=$(echo "$SATYA_DB_URL" | xargs)
-          TOKEN_A=$(echo "$SATYA_DB_TOKEN" | xargs)
+          URL_A=$(echo "$SATYA_DB_URL" | xargs | tr -d '"'\''')
+          TOKEN_A=$(echo "$SATYA_DB_TOKEN" | xargs | tr -d '"'\''')
           HTTP_URL_A="${URL_A/libsql:\/\//https:\/\/}"
           RESPONSE_A=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer $TOKEN_A" \
@@ -83,8 +83,8 @@ jobs:
           echo "Main Database A connection verified successfully!"
 
           echo "Verifying Translation Database B connection..."
-          URL_B=$(echo "$SATYA_TRANSLATION_DB_URL" | xargs)
-          TOKEN_B=$(echo "$SATYA_TRANSLATION_DB_TOKEN" | xargs)
+          URL_B=$(echo "$SATYA_TRANSLATION_DB_URL" | xargs | tr -d '"'\''')
+          TOKEN_B=$(echo "$SATYA_TRANSLATION_DB_TOKEN" | xargs | tr -d '"'\''')
           HTTP_URL_B="${URL_B/libsql:\/\//https:\/\/}"
           RESPONSE_B=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer $TOKEN_B" \
@@ -136,7 +136,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ./models
-          key: qwen-14b-gguf-v1
+          key: qwen-7b-gguf-v1
 
       - name: Download Qwen Model if not cached
         if: steps.cache-model.outputs.cache-hit != 'true'
@@ -146,8 +146,8 @@ jobs:
           import os
           os.makedirs('./models', exist_ok=True)
           hf_hub_download(
-            repo_id='bartowski/Qwen2.5-14B-Instruct-GGUF',
-            filename='Qwen2.5-14B-Instruct-Q5_K_M.gguf',
+            repo_id='bartowski/Qwen2.5-7B-Instruct-GGUF',
+            filename='Qwen2.5-7B-Instruct-Q4_K_M.gguf',
             local_dir='./models',
             local_dir_use_symlinks=False
           )

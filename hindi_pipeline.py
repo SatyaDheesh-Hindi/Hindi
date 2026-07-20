@@ -28,7 +28,7 @@ logging.basicConfig(
 # --- CONFIGURATION ---
 # ==============================================================================
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-MODEL_PATH = os.path.join(MODEL_DIR, "Qwen2.5-14B-Instruct-Q5_K_M.gguf")
+MODEL_PATH = os.path.join(MODEL_DIR, "Qwen2.5-7B-Instruct-Q4_K_M.gguf")
 
 def load_env():
     env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
@@ -90,15 +90,15 @@ def load_llm():
     from llama_cpp import Llama
     if not os.path.exists(MODEL_PATH):
         os.makedirs(MODEL_DIR, exist_ok=True)
-        logging.info("Downloading Qwen 14B GGUF model...")
+        logging.info("Downloading Qwen 7B GGUF model...")
         from huggingface_hub import hf_hub_download
         hf_hub_download(
-            repo_id='bartowski/Qwen2.5-14B-Instruct-GGUF',
-            filename='Qwen2.5-14B-Instruct-Q5_K_M.gguf',
+            repo_id='bartowski/Qwen2.5-7B-Instruct-GGUF',
+            filename='Qwen2.5-7B-Instruct-Q4_K_M.gguf',
             local_dir=MODEL_DIR,
             local_dir_use_symlinks=False
         )
-    logging.info(f"Loading Qwen 14B model from {MODEL_PATH}...")
+    logging.info(f"Loading Qwen 7B model from {MODEL_PATH}...")
     llm = Llama(
         model_path=MODEL_PATH,
         n_ctx=4096,
