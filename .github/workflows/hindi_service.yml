@@ -1,8 +1,10 @@
 name: Satya Hindi Translation Service
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'
+  # Cron temporarily disabled for the v2 test-run review. Re-enable after
+  # verifying the manual test-run output.
+  # schedule:
+  #   - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       test_run:
@@ -14,6 +16,10 @@ on:
         description: 'Shard ID to process (all, or 0-19)'
         required: false
         default: 'all'
+      loop_count:
+        description: 'Internal: self-trigger loop depth (do not set manually)'
+        required: false
+        default: '0'
   repository_dispatch:
     types: [trigger-hindi-translation]
 
@@ -125,33 +131,24 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install huggingface_hub libsql
-          CMAKE_ARGS="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON" pip install --no-cache-dir "llama-cpp-python>=0.2.90"
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
+          # NLLB stack (CPU). transformers pinned to 4.x for stability.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install "transformers==4.46.1" "tokenizers<0.21" sentencepiece sacremoses huggingface_hub libsql
 
-      - name: Cache Qwen Model
-        id: cache-model
+      - name: Clone Entity Library (shard 0 only)
+        if: ${{ matrix.shard == 0 }}
+        env:
+          GITHUB_PAT_CLASSIC: ${{ secrets.PAT_CLASSIC }}
+        run: |
+          git clone "https://${GITHUB_PAT_CLASSIC}@github.com/raam-07/satya-entity-library.git" temp_entity_lib
+
+      - name: Cache NLLB Model
         uses: actions/cache@v4
         with:
-          path: ./models
-          key: qwen-14b-gguf-v1
-
-      - name: Download Qwen Model if not cached
-        if: steps.cache-model.outputs.cache-hit != 'true'
-        run: |
-          python3 -c "
-          from huggingface_hub import hf_hub_download
-          import os
-          os.makedirs('./models', exist_ok=True)
-          hf_hub_download(
-            repo_id='bartowski/Qwen2.5-14B-Instruct-GGUF',
-            filename='Qwen2.5-14B-Instruct-Q5_K_M.gguf',
-            local_dir='./models',
-            local_dir_use_symlinks=False
-          )
-          "
+          path: ~/.cache/huggingface
+          key: nllb-200-1.3B-v1
+          restore-keys: |
+            nllb-200-1.3B-
 
       - name: Run Hindi Translation Pipeline
         id: run-pipeline
@@ -162,13 +159,14 @@ jobs:
           SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
           SHARD_ID: ${{ matrix.shard }}
           NUM_SHARDS: 20
+          SATYA_ENTITY_LIBRARY_DIR: ./temp_entity_lib
         run: |
           ARGS=""
           if [ "${{ github.event.inputs.test_run }}" = "true" ] || [ "${{ github.event.client_payload.test_run }}" = "true" ]; then
             ARGS="--test-run"
           fi
           
-          python3 hindi_pipeline.py --shard ${{ matrix.shard }} --num-shards 20 $ARGS | tee pipeline_output.log
+          python3 hindi_pipeline_v2.py --shard ${{ matrix.shard }} --num-shards 20 $ARGS | tee pipeline_output.log
           
           if grep -q "has_more=true" pipeline_output.log; then
             echo "has_more=true" >> $GITHUB_OUTPUT
@@ -178,18 +176,13 @@ jobs:
 
       - name: Commit and Push Compiled Entity library
         if: ${{ matrix.shard == 0 }}
-        env:
-          GITHUB_PAT_CLASSIC: ${{ secrets.PAT_CLASSIC }}
         run: |
           git config --global user.email "satya-bot@github.com"
           git config --global user.name "Satya Bot"
-          
-          # Clone target library repo using classic token
-          git clone "https://${GITHUB_PAT_CLASSIC}@github.com/raam-07/satya-entity-library.git" temp_entity_lib
-          
-          if [ -f "../satya-entity-library/entities_hi.json" ]; then
-            echo "Copying entities_hi.json to library repository..."
-            cp ../satya-entity-library/entities_hi.json temp_entity_lib/entities_hi.json
+
+          # The pipeline wrote entities_hi.json directly into the pre-cloned
+          # temp_entity_lib (via SATYA_ENTITY_LIBRARY_DIR).
+          if [ -f "temp_entity_lib/entities_hi.json" ]; then
             cd temp_entity_lib
             git add entities_hi.json
             if ! git diff --staged --quiet; then
@@ -199,17 +192,26 @@ jobs:
               echo "No changes in entities_hi.json"
             fi
           else
-            echo "entities_hi.json not found in expected path: ../satya-entity-library/entities_hi.json"
+            echo "::warning::entities_hi.json was not generated (check pipeline logs for the entities stage)."
           fi
 
       - name: Self Trigger Next Run
         if: ${{ steps.run-pipeline.outputs.has_more == 'true' && github.event.inputs.test_run != 'true' && github.event.client_payload.test_run != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          MAX_LOOPS: 30
         run: |
-          echo "More translations remain in shard ${{ matrix.shard }}. Triggering next loop..."
+          LOOP_COUNT="${{ github.event.inputs.loop_count || github.event.client_payload.loop_count || '0' }}"
+          NEXT_LOOP=$((LOOP_COUNT + 1))
+
+          if [ "$NEXT_LOOP" -gt "$MAX_LOOPS" ]; then
+            echo "::warning::Loop depth cap ($MAX_LOOPS) reached for shard ${{ matrix.shard }}. Not re-triggering; the 6-hourly cron will resume remaining work."
+            exit 0
+          fi
+
+          echo "More translations remain in shard ${{ matrix.shard }}. Triggering loop $NEXT_LOOP of $MAX_LOOPS..."
           curl -X POST \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/${{ github.repository }}/actions/workflows/hindi_service.yml/dispatches \
-            -d "{\"ref\":\"${{ github.ref_name }}\", \"inputs\": {\"shard\": \"${{ matrix.shard }}\"}}"
+            -d "{\"ref\":\"${{ github.ref_name }}\", \"inputs\": {\"shard\": \"${{ matrix.shard }}\", \"loop_count\": \"$NEXT_LOOP\"}}"

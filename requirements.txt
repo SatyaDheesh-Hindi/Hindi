@@ -1,4 +1,7 @@
 libsql
-llama-cpp-python>=0.2.90
+transformers==4.46.1
+tokenizers<0.21
+sentencepiece
+sacremoses
 huggingface-hub
 pytest
