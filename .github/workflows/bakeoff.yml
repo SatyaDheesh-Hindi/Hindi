@@ -40,6 +40,12 @@ jobs:
           pip install git+https://github.com/VarunGumma/IndicTransToolkit.git || echo "toolkit install skipped (nllb-only run still works)"
 
       - name: Run bake-off
+        env:
+          # Optional: IndicTrans2 is a gated HF repo. Add an HF_TOKEN secret
+          # (with access granted on the model page) to test it. Without the
+          # token, IndicTrans2 is skipped and only NLLB runs.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           cd bakeoff
           python3 run_bakeoff.py "${{ github.event.inputs.model }}"
