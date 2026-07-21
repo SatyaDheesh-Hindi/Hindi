@@ -100,7 +100,13 @@ _CAP_STOP = {
     "The", "A", "An", "In", "On", "At", "After", "This", "However",
     "Despite", "Since", "Other", "Their", "His", "Her", "Its",
     "Born", "Using", "Starting", "Rescue", "Authorities", "Police",
-    "Meanwhile", "According", "During", "While", "According"
+    "Meanwhile", "According", "During", "While", "According",
+    "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+    "They", "These", "Those", "There", "When", "Where", "Which", "What", "Why", "How",
+    "First", "Second", "Third", "Last", "New", "Old", "Published", "Reported", "State",
+    "Minister", "Prime", "Chief", "President", "Government", "Official", "Officials",
+    "Department", "Ministry", "Court", "Judge", "Justice", "Board", "Commission",
+    "Agency", "Company", "Corp", "Inc", "Ltd", "Group", "Bank", "Hospital"
 }
 
 def entities_in(en):
