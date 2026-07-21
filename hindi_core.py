@@ -54,13 +54,16 @@ def load_glossary(path=GLOSSARY_PATH):
     return _glossary_cache
 
 def apply_glossary(text, glossary=None):
-    """Deterministic substitution. Cannot invent or mistranslate — it only
-    replaces exactly the whitelisted terms."""
+    """Deterministic substitution with Devanagari boundary guarding. Replaces
+    whitelisted terms (longest compound phrases first) without corrupting
+    unrelated Hindi words or postpositions."""
     if glossary is None:
         glossary = load_glossary()
     for dev, lat in glossary:
-        text = text.replace(dev, lat)
-    return text
+        # Match dev bounded by non-Devanagari characters or string edges
+        pattern = rf'(?<![ऀ-ॿ]){re.escape(dev)}(?![ऀ-ॿ])'
+        text = re.sub(pattern, lat, text)
+    return re.sub(r'[ \t]+', ' ', text).strip()
 
 # ---------------------------------------------------------------------------
 # Verification gates
