@@ -118,7 +118,7 @@ def main():
         if c is not None:
             print(f"  {t}: {c}")
     conn.close()
-    print("\nDone. v2 will regenerate translations on its next run.")
+    print("\nDone. The NLLB pipeline will regenerate translations on its next run.")
 
 if __name__ == '__main__':
     main()

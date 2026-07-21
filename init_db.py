@@ -72,6 +72,15 @@ def main():
             );
         """)
         
+        logging.info("Creating translation_failures table...")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS translation_failures (
+                article_id INTEGER PRIMARY KEY,
+                attempts INTEGER DEFAULT 0,
+                last_error TEXT
+            );
+        """)
+
         conn.commit()
         conn.close()
         logging.info("Translation database initialized successfully.")

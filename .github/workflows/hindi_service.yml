@@ -166,7 +166,7 @@ jobs:
             ARGS="--test-run"
           fi
           
-          python3 hindi_pipeline_v2.py --shard ${{ matrix.shard }} --num-shards 20 $ARGS | tee pipeline_output.log
+          python3 hindi_pipeline.py --shard ${{ matrix.shard }} --num-shards 20 $ARGS | tee pipeline_output.log
           
           if grep -q "has_more=true" pipeline_output.log; then
             echo "has_more=true" >> $GITHUB_OUTPUT
