@@ -72,13 +72,23 @@ def get_translation_db_connection():
 # ==============================================================================
 # --- FAILURE TRACKING ---
 # ==============================================================================
-def record_failure(cur, conn, article_id, msg):
+def record_failure(cur_b, conn_b, conn_a, article_id, msg):
     try:
-        cur.execute(
+        cur_b.execute(
             """INSERT INTO translation_failures (article_id, attempts, last_error) VALUES (?, 1, ?)
                ON CONFLICT(article_id) DO UPDATE SET attempts = attempts + 1, last_error = excluded.last_error""",
             (article_id, str(msg)[:500]))
-        conn.commit()
+        conn_b.commit()
+
+        cur_b.execute("SELECT attempts FROM translation_failures WHERE article_id = ?", (article_id,))
+        r = cur_b.fetchone()
+        if r and r[0] >= MAX_FAILURE_ATTEMPTS:
+            try:
+                cur_a = conn_a.cursor()
+                cur_a.execute("UPDATE articles SET translated_hi = 2 WHERE id = ?", (article_id,))
+                conn_a.commit()
+            except Exception:
+                pass
     except Exception as e:
         logging.error(f"Failed to record failure for {article_id}: {e}")
 
@@ -92,15 +102,18 @@ def process_articles(translator, shard, num_shards, batch_size):
     try:
         conn_a = get_db_connection()
         cur_a = conn_a.cursor()
+        # Direct indexed query: reads ONLY active batch items (10 rows!)
         cur_a.execute(
-            "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? ORDER BY id DESC",
-            (num_shards, shard))
-        rows = cur_a.fetchall()
+            "SELECT id, rephrased_title, rephrased_article FROM articles "
+            "WHERE rephrased_article IS NOT NULL AND translated_hi = 0 AND (id % ?) = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (num_shards, shard, batch_size))
+        chunk_rows = cur_a.fetchall()
     except Exception as e:
-        logging.critical(f"Fetch candidate IDs failed: {e}")
+        logging.critical(f"Fetch candidate articles from DB A failed: {e}")
         return False, False
 
-    if not rows:
+    if not chunk_rows:
         conn_a.close()
         logging.info("No articles to translate.")
         return True, False
@@ -110,35 +123,12 @@ def process_articles(translator, shard, num_shards, batch_size):
         cur_b = conn_b.cursor()
         cur_b.execute("CREATE TABLE IF NOT EXISTS translations (article_id INTEGER PRIMARY KEY, rephrased_article_hi BLOB, rephrased_title_hi TEXT, headline_verified_hi INTEGER DEFAULT 0)")
         cur_b.execute("CREATE TABLE IF NOT EXISTS translation_failures (article_id INTEGER PRIMARY KEY, attempts INTEGER DEFAULT 0, last_error TEXT)")
-        cur_b.execute("SELECT article_id FROM translations WHERE (article_id % ?) = ?", (num_shards, shard))
-        completed = {r[0] for r in cur_b.fetchall()}
-        cur_b.execute("SELECT article_id FROM translation_failures WHERE attempts >= ? AND (article_id % ?) = ?", (MAX_FAILURE_ATTEMPTS, num_shards, shard))
-        dead = {r[0] for r in cur_b.fetchall()}
     except Exception as e:
-        logging.critical(f"Query DB B failed: {e}")
+        logging.critical(f"Connect DB B failed: {e}")
         conn_a.close()
         return False, False
 
-    todo = [r[0] for r in rows if r[0] not in completed and r[0] not in dead]
-    logging.info(f"Shard {shard}: total {len(rows)} | done {len(completed)} | dead {len(dead)} | todo {len(todo)}")
-    if not todo:
-        conn_a.close(); conn_b.close()
-        return True, False
-
-    chunk = todo[:batch_size]
-    has_more = len(todo) > batch_size
-
-    try:
-        ph = ",".join("?" for _ in chunk)
-        # rephrased_title = our own generated English headline (clean, complete
-        # sentence) — NOT the raw source title, which carries "| Source" junk.
-        cur_a.execute(f"SELECT id, rephrased_title, rephrased_article FROM articles WHERE id IN ({ph}) ORDER BY id DESC", chunk)
-        chunk_rows = cur_a.fetchall()
-        conn_a.close()
-    except Exception as e:
-        logging.critical(f"Fetch details failed: {e}")
-        conn_a.close(); conn_b.close()
-        return False, False
+    has_more = len(chunk_rows) >= batch_size
 
     for idx, (article_id, eng_headline, comp) in enumerate(chunk_rows):
         try:
@@ -147,16 +137,16 @@ def process_articles(translator, shard, num_shards, batch_size):
                 eng_summary = zlib.decompress(comp).decode('utf-8')
             except (zlib.error, TypeError, UnicodeDecodeError) as ze:
                 logging.error(f"Decompress failed ID {article_id}: {ze}")
-                record_failure(cur_b, conn_b, article_id, f"decompress: {ze}")
+                record_failure(cur_b, conn_b, conn_a, article_id, f"decompress: {ze}")
                 continue
 
             # 1. Translate body
             hi_body_raw = translator.en2hi(eng_summary)
             if not hi_body_raw.strip():
-                record_failure(cur_b, conn_b, article_id, "empty body translation")
+                record_failure(cur_b, conn_b, conn_a, article_id, "empty body translation")
                 continue
 
-            # 2. Translate our generated English headline (clean, complete)
+            # 2. Translate generated English headline
             hi_title_raw = translator.en2hi_short(eng_headline)
 
             # 3. Verify BEFORE glossary with back-translation (guarantees zero entity loss)
@@ -165,14 +155,13 @@ def process_articles(translator, shard, num_shards, batch_size):
             ok_title, rt = core.verify(eng_headline or "", hi_title_raw, back=hi_back)
             if not ok_body:
                 logging.warning(f"Body gate FAIL ID {article_id}: {rb}")
-                record_failure(cur_b, conn_b, article_id, f"body gate: {rb}")
+                record_failure(cur_b, conn_b, conn_a, article_id, f"body gate: {rb}")
                 continue
             if not ok_title:
-                # headline is secondary; fall back to first sentence of body
                 logging.info(f"Title gate fail ID {article_id}; using body lead.")
                 hi_title_raw = hi_body_raw.split("।")[0].strip() or hi_body_raw[:80]
 
-            # 4. Apply glossary (deterministic, post-gate)
+            # 4. Apply glossary
             hi_body = core.apply_glossary(hi_body_raw, glossary)
             hi_title = core.apply_glossary(hi_title_raw, glossary).strip('"\'। ').strip()
 
@@ -182,11 +171,20 @@ def process_articles(translator, shard, num_shards, batch_size):
                 (article_id, comp_hi, hi_title, 1))
             cur_b.execute("DELETE FROM translation_failures WHERE article_id = ?", (article_id,))
             conn_b.commit()
+
+            # Mark translated_hi = 1 in DB A so this row is never re-queried
+            try:
+                cur_a.execute("UPDATE articles SET translated_hi = 1 WHERE id = ?", (article_id,))
+                conn_a.commit()
+            except Exception as ze:
+                logging.error(f"Failed to update translated_hi flag in DB A for {article_id}: {ze}")
+
             logging.info(f"Saved ID {article_id}: '{hi_title}'")
         except Exception as ex:
             logging.error(f"Error ID {article_id}: {ex}")
-            record_failure(cur_b, conn_b, article_id, ex)
+            record_failure(cur_b, conn_b, conn_a, article_id, ex)
 
+    conn_a.close()
     conn_b.close()
     return True, has_more
 
@@ -199,38 +197,36 @@ def process_timelines(translator, shard, num_shards, batch_size):
     try:
         conn_a = get_db_connection()
         cur_a = conn_a.cursor()
-        cur_a.execute("SELECT id, title FROM events WHERE (id % ?) = ? ORDER BY id DESC", (num_shards, shard))
+        cur_a.execute("SELECT id, title FROM events WHERE translated_hi = 0 AND (id % ?) = ? ORDER BY id DESC LIMIT ?", (num_shards, shard, batch_size))
         events = cur_a.fetchall()
-        cur_a.execute("SELECT ea.event_id, ea.article_id, ea.milestone FROM event_articles ea WHERE (ea.event_id % ?) = ?", (num_shards, shard))
+        cur_a.execute(
+            "SELECT ea.event_id, ea.article_id, ea.milestone FROM event_articles ea "
+            "JOIN events e ON ea.event_id = e.id WHERE e.translated_hi = 0 AND (ea.event_id % ?) = ? LIMIT ?",
+            (num_shards, shard, batch_size))
         milestones = cur_a.fetchall()
-        conn_a.close()
     except Exception as e:
         logging.critical(f"Query timelines failed: {e}")
+        try: conn_a.close()
+        except Exception: pass
         return False, False
+
+    if not events and not milestones:
+        conn_a.close()
+        return True, False
 
     try:
         conn_b = get_translation_db_connection()
         cur_b = conn_b.cursor()
         cur_b.execute("CREATE TABLE IF NOT EXISTS event_translations (event_id INTEGER PRIMARY KEY, title_hi TEXT)")
         cur_b.execute("CREATE TABLE IF NOT EXISTS event_milestone_translations (event_id INTEGER, article_id INTEGER, milestone_hi TEXT, PRIMARY KEY (event_id, article_id))")
-        cur_b.execute("SELECT event_id FROM event_translations WHERE (event_id % ?) = ?", (num_shards, shard))
-        done_ev = {r[0] for r in cur_b.fetchall()}
-        cur_b.execute("SELECT event_id, article_id FROM event_milestone_translations WHERE (event_id % ?) = ?", (num_shards, shard))
-        done_ms = {(r[0], r[1]) for r in cur_b.fetchall()}
     except Exception as e:
         logging.critical(f"Query DB B timelines failed: {e}")
+        conn_a.close()
         return False, False
 
-    todo_ev = [e for e in events if e[0] not in done_ev]
-    todo_ms = [m for m in milestones if (m[0], m[1]) not in done_ms]
-    logging.info(f"Timeline todo: events {len(todo_ev)} | milestones {len(todo_ms)}")
-    if not todo_ev and not todo_ms:
-        conn_b.close()
-        return True, False
+    has_more = len(events) >= batch_size or len(milestones) >= batch_size
 
-    has_more = len(todo_ev) > batch_size or len(todo_ms) > batch_size
-
-    for ev_id, title in todo_ev[:batch_size]:
+    for ev_id, title in events:
         try:
             raw = translator.en2hi_short(title)
             back_t = translator.hi2en(raw)
@@ -240,10 +236,14 @@ def process_timelines(translator, shard, num_shards, batch_size):
             hi = core.apply_glossary(raw, glossary)
             cur_b.execute("INSERT OR REPLACE INTO event_translations (event_id, title_hi) VALUES (?, ?)", (ev_id, hi))
             conn_b.commit()
+            try:
+                cur_a.execute("UPDATE events SET translated_hi = 1 WHERE id = ?", (ev_id,))
+                conn_a.commit()
+            except Exception: pass
         except Exception as ex:
             logging.error(f"Event {ev_id} failed: {ex}")
 
-    for ev_id, art_id, desc in todo_ms[:batch_size]:
+    for ev_id, art_id, desc in milestones:
         try:
             raw = translator.en2hi_short(desc)
             back_m = translator.hi2en(raw)
@@ -256,6 +256,7 @@ def process_timelines(translator, shard, num_shards, batch_size):
         except Exception as ex:
             logging.error(f"Milestone {ev_id}/{art_id} failed: {ex}")
 
+    conn_a.close()
     conn_b.close()
     return True, has_more
 
