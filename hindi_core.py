@@ -106,7 +106,8 @@ _CAP_STOP = {
     "First", "Second", "Third", "Last", "New", "Old", "Published", "Reported", "State",
     "Minister", "Prime", "Chief", "President", "Government", "Official", "Officials",
     "Department", "Ministry", "Court", "Judge", "Justice", "Board", "Commission",
-    "Agency", "Company", "Corp", "Inc", "Ltd", "Group", "Bank", "Hospital"
+    "Agency", "Company", "Corp", "Inc", "Ltd", "Group", "Bank", "Hospital",
+    "Gaya", "Kiya", "Huye", "Karta", "Haye", "Raha", "Rahi", "Rahe", "Hain", "Hoon"
 }
 
 def entities_in(en):
