@@ -141,30 +141,51 @@ def verify(en, hi, back=""):
     }
     return (num_ok and scr_ok and ent_ok), reasons
 
-def extract_and_mask_entities(text):
-    """NER Token Masking: Extracts multi-word proper nouns, person names, and titles
-    from English source text and replaces them with __ENT_0__, __ENT_1__ placeholders
-    before translation. Prevents NLLB from semantic mistranslation of surnames."""
-    pattern = r'\b[A-Z][a-zA-Z\.]+(?:\s+[A-Z][a-zA-Z\.]+)+\b'
-    matches = list(re.finditer(pattern, text or ''))
-
-    # Sort matches by length descending so multi-word names replace first
-    matches = sorted(set(m.group(0) for m in matches if m.group(0) not in _CAP_STOP), key=len, reverse=True)
-
-    ent_map = {}
+def extract_and_mask_all(text):
+    """Multi-Pattern Token Masking Engine: Extracts and masks timestamps, monetary amounts,
+    and multi-word proper nouns/names into neutral placeholders before translation.
+    Prevents NLLB from corrupting time dots (10.21 -> 10:21), currency values, or surnames."""
+    mask_map = {}
     masked_text = text or ''
-    for idx, ent in enumerate(matches):
+    idx = 0
+
+    # 1. Timestamps (e.g. '10.21 am', '11:10 PM', '10.21') -> __TIME_N__
+    time_pattern = r'\b(?:1[0-2]|0?[1-9])[\.\:][0-5][0-9]\s*(?:am|pm|AM|PM)?\b'
+    for m in list(re.finditer(time_pattern, masked_text)):
+        t_str = m.group(0)
+        t_clean = re.sub(r'[\.]', ':', t_str)
+        placeholder = f'__TIME_{idx}__'
+        mask_map[placeholder] = t_clean
+        masked_text = masked_text.replace(t_str, placeholder, 1)
+        idx += 1
+
+    # 2. Currencies & Monetary Amounts (e.g. '$50 million', 'Rs 50 lakh', '₹50 lakh') -> __MONEY_N__
+    money_pattern = r'(?:\$|₹|Rs\.?\s*|EUR\s*)\d+(?:\.\d+)?\s*(?:million|billion|trillion|lakh|crore)?\b'
+    for m in list(re.finditer(money_pattern, masked_text, re.IGNORECASE)):
+        m_str = m.group(0)
+        placeholder = f'__MONEY_{idx}__'
+        mask_map[placeholder] = m_str
+        masked_text = masked_text.replace(m_str, placeholder, 1)
+        idx += 1
+
+    # 3. Multi-word Proper Nouns / Names (excluding _CAP_STOP words) -> __ENT_N__
+    ent_pattern = r'\b[A-Z][a-zA-Z\.]+(?:\s+[A-Z][a-zA-Z\.]+)+\b'
+    matches = list(re.finditer(ent_pattern, masked_text))
+    valid_matches = [m.group(0) for m in matches if m.group(0).split()[0] not in _CAP_STOP]
+    valid_matches = sorted(set(valid_matches), key=len, reverse=True)
+    for ent in valid_matches:
         placeholder = f'__ENT_{idx}__'
-        ent_map[placeholder] = ent
+        mask_map[placeholder] = ent
         masked_text = re.sub(rf'\b{re.escape(ent)}\b', placeholder, masked_text)
+        idx += 1
 
-    return masked_text, ent_map
+    return masked_text, mask_map
 
-def unmask_entities(text, ent_map):
-    """Restores masked entity placeholders __ENT_N__ back to exact original Latin proper nouns."""
-    if not ent_map or not text:
+def unmask_all(text, mask_map):
+    """Restores all masked placeholders (__TIME_N__, __MONEY_N__, __ENT_N__) back to exact Latin text."""
+    if not mask_map or not text:
         return text or ''
-    for placeholder, original in ent_map.items():
+    for placeholder, original in mask_map.items():
         text = text.replace(placeholder, original)
     return text
 
@@ -172,7 +193,7 @@ def unmask_entities(text, ent_map):
 # NLLB wrapper
 # ---------------------------------------------------------------------------
 class Translator:
-    """Lazy NLLB-200-1.3B wrapper with NER Entity Token Masking."""
+    """Lazy NLLB-200-1.3B wrapper with Multi-Pattern Token Masking."""
     def __init__(self, model_name="facebook/nllb-200-1.3B", beams=4):
         import torch
         from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
@@ -194,20 +215,20 @@ class Translator:
         return self.tok.batch_decode(out, skip_special_tokens=True)[0]
 
     def en2hi(self, text):
-        """Translate English -> Hindi with NER entity placeholder masking."""
-        masked_text, ent_map = extract_and_mask_entities(text)
+        """Translate English -> Hindi with Multi-Pattern Token Masking (times, money, names)."""
+        masked_text, mask_map = extract_and_mask_all(text)
         sents = split_sentences(masked_text)
         raw_hi = " ".join(self._gen(s, "eng_Latn", "hin_Deva") for s in sents)
-        return unmask_entities(raw_hi, ent_map)
+        return unmask_all(raw_hi, mask_map)
 
     def en2hi_short(self, text):
-        """Single short string (title, milestone, profile field) with NER masking."""
+        """Single short string (title, milestone, profile field) with Multi-Pattern Token Masking."""
         text = re.sub(r"\*\*", "", (text or "").strip())
         if not text:
             return ""
-        masked_text, ent_map = extract_and_mask_entities(text)
+        masked_text, mask_map = extract_and_mask_all(text)
         raw_hi = self._gen(masked_text, "eng_Latn", "hin_Deva")
-        return unmask_entities(raw_hi, ent_map)
+        return unmask_all(raw_hi, mask_map)
 
     def hi2en(self, text):
         return self._gen(text, "hin_Deva", "eng_Latn", beams=2)
