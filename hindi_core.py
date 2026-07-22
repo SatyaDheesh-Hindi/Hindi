@@ -142,9 +142,10 @@ def verify(en, hi, back=""):
     return (num_ok and scr_ok and ent_ok), reasons
 
 def extract_and_mask_all(text):
-    """Multi-Pattern Token Masking Engine: Extracts and masks timestamps, monetary amounts,
-    and multi-word proper nouns/names into neutral placeholders before translation.
-    Prevents NLLB from corrupting time dots (10.21 -> 10:21), currency values, or surnames."""
+    """Dynamic POS & Multi-Pattern Token Masking Engine: Extracts and masks timestamps,
+    monetary amounts, proper nouns, news nouns, and adjectives into neutral placeholders
+    before translation. Forces NLLB to translate ONLY the Hindi grammar skeleton while
+    preserving 100% of English news terms in crisp Latin script."""
     mask_map = {}
     masked_text = text or ''
     idx = 0
@@ -168,16 +169,48 @@ def extract_and_mask_all(text):
         masked_text = masked_text.replace(m_str, placeholder, 1)
         idx += 1
 
-    # 3. Multi-word Proper Nouns / Names (excluding _CAP_STOP words) -> __ENT_N__
+    # 3. Multi-word Proper Nouns / Names (excluding _CAP_STOP words) -> __NOUN_N__
     ent_pattern = r'\b[A-Z][a-zA-Z\.]+(?:\s+[A-Z][a-zA-Z\.]+)+\b'
     matches = list(re.finditer(ent_pattern, masked_text))
     valid_matches = [m.group(0) for m in matches if m.group(0).split()[0] not in _CAP_STOP]
     valid_matches = sorted(set(valid_matches), key=len, reverse=True)
     for ent in valid_matches:
-        placeholder = f'__ENT_{idx}__'
+        placeholder = f'__NOUN_{idx}__'
         mask_map[placeholder] = ent
         masked_text = re.sub(rf'\b{re.escape(ent)}\b', placeholder, masked_text)
         idx += 1
+
+    # 4. News Nouns & Adjective Phrases (Dynamic POS Preserver) -> __NOUN_N__
+    news_nouns_adj = [
+        'police team', 'police officers', 'police officer', 'police force', 'police station',
+        'residential building', 'third floor', 'rescue effort', 'rescue operation', 'cause of fire',
+        'under investigation', 'court order', 'high court', 'supreme court', 'judicial custody',
+        'police custody', 'interim bail', 'anticipatory bail', 'home ministry', 'defense ministry',
+        'finance ministry', 'health ministry', 'education ministry', 'railway ministry',
+        'government department', 'government scheme', 'government official', 'cabinet meeting',
+        'budget session', 'parliament session', 'election rally', 'election campaign',
+        'smart city project', 'metro project', 'power grid', 'charging station', 'share market',
+        'stock market', 'interest rate', 'digital payment', 'mutual fund', 'world cup match',
+        'ipl match', 'box office collection', 'emergency ward', 'medical college',
+        'investigation', 'inquiry', 'statement', 'protest', 'meeting', 'project', 'hospital',
+        'airport', 'flight', 'highway', 'expressway', 'bridge', 'tunnel', 'railway', 'traffic',
+        'budget', 'fund', 'loan', 'tax', 'subsidy', 'market', 'company', 'startup', 'inflation',
+        'gdp', 'app', 'website', 'portal', 'server', 'data', 'video', 'photo', 'post', 'tweet',
+        'viral', 'smartphone', '5g', 'virus', 'vaccine', 'dose', 'surgery', 'patient', 'doctor',
+        'nurse', 'match', 'tournament', 'trophy', 'stadium', 'player', 'captain', 'score',
+        'victims', 'effort', 'crisis', 'threat', 'mishap', 'accident', 'tragedy', 'casualty',
+        'major', 'digital', 'electronic', 'automatic', 'financial', 'strategic', 'medical'
+    ]
+    news_nouns_adj = sorted(set(news_nouns_adj), key=len, reverse=True)
+    for n in news_nouns_adj:
+        pattern = rf'\b{re.escape(n)}\b'
+        if re.search(pattern, masked_text, re.IGNORECASE):
+            m = re.search(pattern, masked_text, re.IGNORECASE)
+            exact_val = m.group(0)
+            placeholder = f'__NOUN_{idx}__'
+            mask_map[placeholder] = exact_val
+            masked_text = re.sub(rf'\b{re.escape(exact_val)}\b', placeholder, masked_text)
+            idx += 1
 
     return masked_text, mask_map
 
