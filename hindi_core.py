@@ -141,12 +141,38 @@ def verify(en, hi, back=""):
     }
     return (num_ok and scr_ok and ent_ok), reasons
 
+def extract_and_mask_entities(text):
+    """NER Token Masking: Extracts multi-word proper nouns, person names, and titles
+    from English source text and replaces them with __ENT_0__, __ENT_1__ placeholders
+    before translation. Prevents NLLB from semantic mistranslation of surnames."""
+    pattern = r'\b[A-Z][a-zA-Z\.]+(?:\s+[A-Z][a-zA-Z\.]+)+\b'
+    matches = list(re.finditer(pattern, text or ''))
+
+    # Sort matches by length descending so multi-word names replace first
+    matches = sorted(set(m.group(0) for m in matches if m.group(0) not in _CAP_STOP), key=len, reverse=True)
+
+    ent_map = {}
+    masked_text = text or ''
+    for idx, ent in enumerate(matches):
+        placeholder = f'__ENT_{idx}__'
+        ent_map[placeholder] = ent
+        masked_text = re.sub(rf'\b{re.escape(ent)}\b', placeholder, masked_text)
+
+    return masked_text, ent_map
+
+def unmask_entities(text, ent_map):
+    """Restores masked entity placeholders __ENT_N__ back to exact original Latin proper nouns."""
+    if not ent_map or not text:
+        return text or ''
+    for placeholder, original in ent_map.items():
+        text = text.replace(placeholder, original)
+    return text
+
 # ---------------------------------------------------------------------------
 # NLLB wrapper
 # ---------------------------------------------------------------------------
 class Translator:
-    """Lazy NLLB-200-1.3B wrapper. en->hi for translation; hi->en for the
-    back-translation gate (optional, slower)."""
+    """Lazy NLLB-200-1.3B wrapper with NER Entity Token Masking."""
     def __init__(self, model_name="facebook/nllb-200-1.3B", beams=4):
         import torch
         from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
@@ -168,16 +194,20 @@ class Translator:
         return self.tok.batch_decode(out, skip_special_tokens=True)[0]
 
     def en2hi(self, text):
-        """Translate English -> Hindi, sentence by sentence, rejoined."""
-        sents = split_sentences(text)
-        return " ".join(self._gen(s, "eng_Latn", "hin_Deva") for s in sents)
+        """Translate English -> Hindi with NER entity placeholder masking."""
+        masked_text, ent_map = extract_and_mask_entities(text)
+        sents = split_sentences(masked_text)
+        raw_hi = " ".join(self._gen(s, "eng_Latn", "hin_Deva") for s in sents)
+        return unmask_entities(raw_hi, ent_map)
 
     def en2hi_short(self, text):
-        """Single short string (title, milestone, profile field)."""
+        """Single short string (title, milestone, profile field) with NER masking."""
         text = re.sub(r"\*\*", "", (text or "").strip())
         if not text:
             return ""
-        return self._gen(text, "eng_Latn", "hin_Deva")
+        masked_text, ent_map = extract_and_mask_entities(text)
+        raw_hi = self._gen(masked_text, "eng_Latn", "hin_Deva")
+        return unmask_entities(raw_hi, ent_map)
 
     def hi2en(self, text):
         return self._gen(text, "hin_Deva", "eng_Latn", beams=2)
