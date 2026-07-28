@@ -146,9 +146,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: gemma-2b-model-v1
+          key: gemma-model-v1
           restore-keys: |
-            gemma-2b-model-
+            gemma-model-
 
       - name: Run Hindi Translation Pipeline
         id: run-pipeline
@@ -160,6 +160,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGINGFACE_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
+          TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || 'google/gemma-2-9b-it' }}
           SHARD_ID: ${{ matrix.shard }}
           NUM_SHARDS: 20
           SATYA_ENTITY_LIBRARY_DIR: ./temp_entity_lib
