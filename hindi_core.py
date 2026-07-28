@@ -226,20 +226,71 @@ def unmask_all(text, mask_map):
 # ---------------------------------------------------------------------------
 # NLLB wrapper
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Translation Model Wrapper (Gemma FP16 / NLLB)
+# ---------------------------------------------------------------------------
 class Translator:
-    """Lazy NLLB-200-1.3B wrapper with Multi-Pattern Token Masking."""
-    def __init__(self, model_name="facebook/nllb-200-1.3B", beams=4):
+    """Lazy Translator wrapper supporting Gemma FP16/BF16 CausalLM and NLLB Seq2Seq models."""
+    def __init__(self, model_name=None, beams=4, dtype="float16"):
         import torch
-        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+        from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
+
+        if model_name is None:
+            model_name = os.environ.get("TRANSLATION_MODEL", "google/gemma-2-2b-it")
+
         self.torch = torch
         self.beams = beams
-        logging.info(f"Loading {model_name}...")
-        self.tok = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-        self.model.eval()
-        logging.info("NLLB loaded.")
+        self.model_name = model_name
+        self.is_gemma = "gemma" in model_name.lower()
+        hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
 
-    def _gen(self, text, src, tgt, beams=None):
+        logging.info(f"Loading translation model {model_name} (is_gemma={self.is_gemma}, dtype={dtype})...")
+        self.tok = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+
+        if self.is_gemma:
+            torch_dtype = torch.bfloat16 if dtype == "bfloat16" else torch.float16
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=torch_dtype,
+                token=hf_token,
+                low_cpu_mem_usage=True
+            )
+        else:
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, token=hf_token)
+
+        self.model.eval()
+        logging.info(f"Model {model_name} loaded successfully.")
+
+    def _gen_gemma(self, text, task="en2hi"):
+        if task == "en2hi":
+            prompt = (
+                f"<start_of_turn>user\n"
+                f"Translate the following English sentence accurately into Hindi in Devanagari script. "
+                f"Output ONLY the translated Hindi text and nothing else:\n\n{text}<end_of_turn>\n"
+                f"<start_of_turn>model\n"
+            )
+        else:
+            prompt = (
+                f"<start_of_turn>user\n"
+                f"Translate the following Hindi text accurately into English. "
+                f"Output ONLY the translated English text and nothing else:\n\n{text}<end_of_turn>\n"
+                f"<start_of_turn>model\n"
+            )
+
+        enc = self.tok(prompt, return_tensors="pt")
+        with self.torch.no_grad():
+            out = self.model.generate(
+                **enc,
+                max_new_tokens=256,
+                do_sample=False,
+                temperature=0.0
+            )
+        gen_tokens = out[0][enc.input_ids.shape[1]:]
+        res = self.tok.decode(gen_tokens, skip_special_tokens=True).strip()
+        res = re.sub(r'^["\']|["\']$', '', res)
+        return res
+
+    def _gen_nllb(self, text, src, tgt, beams=None):
         self.tok.src_lang = src
         enc = self.tok(text, return_tensors="pt", truncation=True, max_length=256)
         bos = self.tok.convert_tokens_to_ids(tgt)
@@ -252,7 +303,10 @@ class Translator:
         """Translate English -> Hindi with Multi-Pattern Token Masking (times, money, names)."""
         masked_text, mask_map = extract_and_mask_all(text)
         sents = split_sentences(masked_text)
-        raw_hi = " ".join(self._gen(s, "eng_Latn", "hin_Deva") for s in sents)
+        if self.is_gemma:
+            raw_hi = " ".join(self._gen_gemma(s, "en2hi") for s in sents)
+        else:
+            raw_hi = " ".join(self._gen_nllb(s, "eng_Latn", "hin_Deva") for s in sents)
         return unmask_all(raw_hi, mask_map)
 
     def en2hi_short(self, text):
@@ -261,8 +315,16 @@ class Translator:
         if not text:
             return ""
         masked_text, mask_map = extract_and_mask_all(text)
-        raw_hi = self._gen(masked_text, "eng_Latn", "hin_Deva")
+        if self.is_gemma:
+            raw_hi = self._gen_gemma(masked_text, "en2hi")
+        else:
+            raw_hi = self._gen_nllb(masked_text, "eng_Latn", "hin_Deva")
         return unmask_all(raw_hi, mask_map)
 
     def hi2en(self, text):
-        return self._gen(text, "hin_Deva", "eng_Latn", beams=2)
+        if not text:
+            return ""
+        if self.is_gemma:
+            return self._gen_gemma(text, "hi2en")
+        else:
+            return self._gen_nllb(text, "hin_Deva", "eng_Latn", beams=2)
