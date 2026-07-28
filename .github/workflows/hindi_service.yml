@@ -133,7 +133,7 @@ jobs:
           python -m pip install --upgrade pip
           # NLLB stack (CPU). transformers pinned to 4.x for stability.
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install "transformers==4.46.1" "tokenizers<0.21" sentencepiece sacremoses huggingface_hub libsql accelerate
+          pip install "transformers>=4.49.0" sentencepiece sacremoses huggingface_hub libsql accelerate
 
       - name: Clone Entity Library (shard 0 only)
         if: ${{ matrix.shard == 0 }}

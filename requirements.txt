@@ -1,6 +1,5 @@
 libsql
-transformers==4.46.1
-tokenizers<0.21
+transformers>=4.49.0
 sentencepiece
 sacremoses
 huggingface-hub
