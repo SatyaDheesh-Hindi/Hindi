@@ -265,8 +265,48 @@ class Translator:
         if task == "en2hi":
             prompt = (
                 f"<start_of_turn>user\n"
-                f"Translate the following English sentence accurately into Hindi in Devanagari script. "
-                f"Output ONLY the translated Hindi text and nothing else:\n\n{text}<end_of_turn>\n"
+                f"You are a Hindi translator for a popular Indian news app. You write the natural, everyday Hindi that urban Indians actually speak in Delhi, Mumbai and Bangalore.\n\n"
+                f"Translate the English article at the end into conversational Hindi.\n\n"
+                f"RULES\n"
+                f"1. Write in Devanagari script.\n"
+                f"2. Use simple spoken Hindi, the way a friend or a TV anchor would say it. Short sentences.\n"
+                f"3. Keep common English words as English, written in Devanagari:\n"
+                f"   पुलिस, स्कूल, कॉलेज, ऑफिस, कंपनी, मोबाइल, वीडियो, रिपोर्ट, सोशल मीडिया, ट्रेन, फ्लाइट, मार्केट, बजट, इंटरव्यू, सैलरी, टीम, प्रोजेक्ट.\n"
+                f"4. Do NOT use heavy Sanskrit-style Hindi. Avoid words like: विद्यालय, दूरभाष, संवाददाता, अवगत, प्रचालन, समाचार पत्र, महाविद्यालय, चलचित्र.\n"
+                f"5. Keep names, places, brands, numbers, dates and money exactly as given (write names in Devanagari). Acronyms like AI, UPI, IPL, BJP stay in English letters.\n"
+                f"6. Do not add, remove or explain anything. Keep the length close to the original.\n"
+                f"7. Output ONLY the Hindi translation. No English, no notes, no headings.\n\n"
+                f"EXAMPLE\n"
+                f"English: Delhi Police have arrested three men for allegedly cheating people through a fake job website. Officials said the gang collected over Rs 40 lakh from at least 200 applicants. The website has been taken down and an investigation is on.\n"
+                f"Hindi: दिल्ली पुलिस ने तीन लोगों को अरेस्ट किया है। इन पर एक फेक जॉब वेबसाइट के ज़रिए लोगों से ठगी करने का आरोप है। अफ़सरों ने बताया कि गैंग ने कम से कम 200 अप्लिकेंट्स से 40 लाख रुपये से ज़्यादा वसूल लिए। वेबसाइट बंद कर दी गई है और जांच चल रही है。\n\n"
+                f"Now translate this article:\n"
+                f"English: {text}\n"
+                f"Hindi:<end_of_turn>\n"
+                f"<start_of_turn>model\n"
+            )
+        elif task == "en2hi_headline":
+            prompt = (
+                f"<start_of_turn>user\n"
+                f"You are a Hindi headline writer for a popular Indian news app. You write punchy headlines in the everyday Hindi that urban Indians speak.\n\n"
+                f"Translate the English headline at the end into a conversational Hindi headline.\n\n"
+                f"RULES\n"
+                f"1. Devanagari script. Maximum 10 words.\n"
+                f"2. No full stop at the end. A comma or a dash is fine.\n"
+                f"3. Simple spoken Hindi. Keep common English words in Devanagari (पुलिस, ट्रेन, फेक, अरेस्ट, स्टार्टअप). Acronyms like AI, UPI, IPL, BJP stay in English letters.\n"
+                f"4. Avoid heavy Hindi words like संवाददाता, अवगत, प्रचालन, विद्यालय.\n"
+                f"5. Keep the main name or number from the original.\n"
+                f"6. Do not invent drama or details that are not in the headline.\n"
+                f"7. Output ONLY the Hindi headline. Nothing else.\n\n"
+                f"EXAMPLES\n"
+                f"English: Delhi Police arrest three for running fake job website, Rs 40 lakh duped\n"
+                f"Hindi: फेक जॉब वेबसाइट से 40 लाख की ठगी, तीन अरेस्ट\n\n"
+                f"English: Mumbai local train services delayed by two hours after technical fault\n"
+                f"Hindi: टेक्निकल फॉल्ट से मुंबई लोकल दो घंटे लेट\n\n"
+                f"English: Startup founder says AI will not replace junior developers\n"
+                f"Hindi: स्टार्टअप फाउंडर बोले— जूनियर डेवलपर्स की जगह AI नहीं लेगा\n\n"
+                f"Now translate this headline:\n"
+                f"English: {text}\n"
+                f"Hindi:<end_of_turn>\n"
                 f"<start_of_turn>model\n"
             )
         else:
@@ -282,8 +322,9 @@ class Translator:
             out = self.model.generate(
                 **enc,
                 max_new_tokens=256,
-                do_sample=False,
-                temperature=0.0
+                do_sample=True,
+                temperature=0.2,
+                top_p=0.9
             )
         gen_tokens = out[0][enc.input_ids.shape[1]:]
         res = self.tok.decode(gen_tokens, skip_special_tokens=True).strip()
@@ -300,7 +341,7 @@ class Translator:
         return self.tok.batch_decode(out, skip_special_tokens=True)[0]
 
     def en2hi(self, text):
-        """Translate English -> Hindi with Multi-Pattern Token Masking (times, money, names)."""
+        """Translate English -> Hindi article body with Multi-Pattern Token Masking (times, money, names)."""
         masked_text, mask_map = extract_and_mask_all(text)
         sents = split_sentences(masked_text)
         if self.is_gemma:
@@ -310,13 +351,13 @@ class Translator:
         return unmask_all(raw_hi, mask_map)
 
     def en2hi_short(self, text):
-        """Single short string (title, milestone, profile field) with Multi-Pattern Token Masking."""
+        """Single short string (headline, title, milestone) with Multi-Pattern Token Masking."""
         text = re.sub(r"\*\*", "", (text or "").strip())
         if not text:
             return ""
         masked_text, mask_map = extract_and_mask_all(text)
         if self.is_gemma:
-            raw_hi = self._gen_gemma(masked_text, "en2hi")
+            raw_hi = self._gen_gemma(masked_text, "en2hi_headline")
         else:
             raw_hi = self._gen_nllb(masked_text, "eng_Latn", "hin_Deva")
         return unmask_all(raw_hi, mask_map)
