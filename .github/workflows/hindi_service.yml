@@ -160,7 +160,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGINGFACE_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
-          TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || 'google/gemma-2-9b-it' }}
+          TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || 'google/translategemma-4b-it' }}
           SHARD_ID: ${{ matrix.shard }}
           NUM_SHARDS: 20
           SATYA_ENTITY_LIBRARY_DIR: ./temp_entity_lib

@@ -236,7 +236,7 @@ class Translator:
         from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
 
         if model_name is None:
-            model_name = os.environ.get("TRANSLATION_MODEL", "google/gemma-2-9b-it")
+            model_name = os.environ.get("TRANSLATION_MODEL", "google/translategemma-4b-it")
 
         self.torch = torch
         self.beams = beams
