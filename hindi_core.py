@@ -248,7 +248,8 @@ class Translator:
         self.tok = AutoTokenizer.from_pretrained(model_name, token=hf_token)
 
         if self.is_gemma:
-            torch_dtype = torch.bfloat16 if dtype == "bfloat16" else torch.float16
+            # Use bfloat16 (or float32) to prevent float16 CPU exponent overflow (inf/nan) during logits/temperature sampling
+            torch_dtype = torch.bfloat16
             kwargs = {
                 "torch_dtype": torch_dtype,
                 "token": hf_token
