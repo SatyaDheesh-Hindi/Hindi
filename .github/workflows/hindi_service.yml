@@ -142,13 +142,13 @@ jobs:
         run: |
           git clone "https://${GITHUB_PAT_CLASSIC}@github.com/raam-07/satya-entity-library.git" temp_entity_lib
 
-      - name: Cache NLLB Model
+      - name: Cache Translation Model
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: nllb-200-1.3B-v1
+          key: gemma-2b-model-v1
           restore-keys: |
-            nllb-200-1.3B-
+            gemma-2b-model-
 
       - name: Run Hindi Translation Pipeline
         id: run-pipeline
