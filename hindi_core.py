@@ -249,12 +249,16 @@ class Translator:
 
         if self.is_gemma:
             torch_dtype = torch.bfloat16 if dtype == "bfloat16" else torch.float16
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                torch_dtype=torch_dtype,
-                token=hf_token,
-                low_cpu_mem_usage=True
-            )
+            kwargs = {
+                "torch_dtype": torch_dtype,
+                "token": hf_token
+            }
+            try:
+                import accelerate
+                kwargs["low_cpu_mem_usage"] = True
+            except ImportError:
+                pass
+            self.model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
         else:
             self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, token=hf_token)
 
