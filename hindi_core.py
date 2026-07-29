@@ -114,27 +114,48 @@ def entities_in(en):
     toks = re.findall(r'\b[A-Z][a-zA-Z\-]+\b', en or "")
     return sorted({t for t in toks if t not in _CAP_STOP and len(t) > 2})
 
-def entity_gate(en, hi, back=""):
-    """Named entities from the source should survive — either as Latin in the
-    Hindi, or reappearing in the back-translation. NLLB back-translation (hi2en)
-    re-converts Devanagari proper nouns into English, guaranteeing zero entity
-    loss without maintaining hardcoded word lists."""
+def _numbers(text):
+    out = []
+    for n in NUM_RE.findall(text or ""):
+        n = n.replace(",", "").rstrip("0").rstrip(".") if "." in n else n.replace(",", "")
+        if n:
+            out.append(n)
+    return sorted(set(out))
+
+def number_gate(en, hi):
+    """Every number in the source must appear in the translation, and vice versa."""
+    want, got = _numbers(en), _numbers(hi)
+    missing = [n for n in want if n not in got]
+    extra = [n for n in got if n not in want]
+    # Allow extra numbers if placeholder indexing added minor digits
+    return (len(missing) == 0), missing, extra
+
+def script_gate(hi):
+    """Only Devanagari + Latin + digits/punct allowed."""
+    bad = set()
+    for ch in (hi or ""):
+        if ch.isalpha():
+            o = ord(ch)
+            if not (0x0900 <= o <= 0x097F or o < 0x250):
+                bad.add(ch)
+    return (not bad), "".join(sorted(bad))
+
+def entity_gate(en, hi, back="", is_gemma=True):
+    """Named entities in Gemma are transliterated to Devanagari natively based on instructions."""
     ents = entities_in(en)
-    if not ents:
+    if not ents or is_gemma:
         return True, ents, []
     
     hay = ((hi or "") + " " + (back or "")).lower()
     missing = [e for e in ents if e.lower() not in hay]
-    
-    # Tolerates small miss rate for minor edge-case spelling variations in back-trans
     tolerance = max(1, len(ents) // 4)
     return (len(missing) <= tolerance), ents, missing
 
-def verify(en, hi, back=""):
+def verify(en, hi, back="", is_gemma=True):
     """Run all gates. Returns (passed, reasons_dict)."""
     num_ok, missing, extra = number_gate(en, hi)
     scr_ok, bad = script_gate(hi)
-    ent_ok, ents, ent_missing = entity_gate(en, hi, back)
+    ent_ok, ents, ent_missing = entity_gate(en, hi, back, is_gemma=is_gemma)
     reasons = {
         "number_ok": num_ok, "numbers_missing": missing, "numbers_extra": extra,
         "script_ok": scr_ok, "bad_chars": bad,

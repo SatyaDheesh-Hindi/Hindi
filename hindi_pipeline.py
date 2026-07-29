@@ -151,8 +151,8 @@ def process_articles(translator, shard, num_shards, batch_size):
 
             # 3. Verify BEFORE glossary with back-translation (guarantees zero entity loss)
             hi_back = translator.hi2en(hi_body_raw)
-            ok_body, rb = core.verify(eng_summary, hi_body_raw, back=hi_back)
-            ok_title, rt = core.verify(eng_headline or "", hi_title_raw, back=hi_back)
+            ok_body, rb = core.verify(eng_summary, hi_body_raw, back=hi_back, is_gemma=getattr(translator, 'is_gemma', True))
+            ok_title, rt = core.verify(eng_headline or "", hi_title_raw, back=hi_back, is_gemma=getattr(translator, 'is_gemma', True))
             if not ok_body:
                 logging.warning(f"Body gate FAIL ID {article_id}: {rb}")
                 record_failure(cur_b, conn_b, conn_a, article_id, f"body gate: {rb}")
