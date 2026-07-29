@@ -171,9 +171,13 @@ def process_articles(translator, shard, num_shards, batch_size):
                 logging.info(f"Title gate fail ID {article_id}; using body lead.")
                 hi_title_raw = hi_body_raw.split("।")[0].strip() or hi_body_raw[:80]
 
-            # 4. Apply glossary
-            hi_body = core.apply_glossary(hi_body_raw, glossary)
-            hi_title = core.apply_glossary(hi_title_raw, glossary).strip('"\'। ').strip()
+            # 4. Apply glossary ONLY for NLLB (Gemma already follows conversational urban Hindi prompts)
+            if not getattr(translator, 'is_gemma', True):
+                hi_body = core.apply_glossary(hi_body_raw, glossary)
+                hi_title = core.apply_glossary(hi_title_raw, glossary).strip('"\'। ').strip()
+            else:
+                hi_body = hi_body_raw
+                hi_title = hi_title_raw.strip('"\'। ').strip()
 
             comp_hi = zlib.compress(hi_body.encode('utf-8'))
 
