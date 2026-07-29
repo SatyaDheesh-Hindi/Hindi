@@ -13,9 +13,9 @@ on:
         required: false
         default: false
       shard:
-        description: 'Shard ID to process (all, or 0-19)'
+        description: 'Shard ID to process (0-19)'
         required: false
-        default: 'all'
+        default: '0'
       loop_count:
         description: 'Internal: self-trigger loop depth (do not set manually)'
         required: false
@@ -39,12 +39,10 @@ jobs:
           if [ -z "$INPUT_SHARD" ]; then
             INPUT_SHARD="${{ github.event.client_payload.shard }}"
           fi
-          
-          if [ -z "$INPUT_SHARD" ] || [ "$INPUT_SHARD" = "all" ]; then
-            echo "shards=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]" >> $GITHUB_OUTPUT
-          else
-            echo "shards=[$INPUT_SHARD]" >> $GITHUB_OUTPUT
+          if [ -z "$INPUT_SHARD" ]; then
+            INPUT_SHARD="0"
           fi
+          echo "shards=[$INPUT_SHARD]" >> $GITHUB_OUTPUT
 
   translate:
     needs: setup
