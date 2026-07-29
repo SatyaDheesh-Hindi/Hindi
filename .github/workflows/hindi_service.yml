@@ -24,8 +24,8 @@ on:
     types: [trigger-hindi-translation]
 
 concurrency:
-  group: satya-hindi-translations-${{ github.event.inputs.shard || github.event.client_payload.shard || 'all' }}
-  cancel-in-progress: false
+  group: satya-hindi-translations
+  cancel-in-progress: true
 
 jobs:
   setup:
