@@ -265,26 +265,23 @@ class Translator:
         self.is_gemma = "gemma" in model_name.lower()
         hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
 
-        logging.info(f"Loading translation model {model_name} (is_gemma={self.is_gemma}, dtype={dtype})...")
-        self.tok = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+        logging.info(f"Loading translation model {model_name} (is_gemma={self.is_gemma})...")
 
         if self.is_gemma:
-            # Use bfloat16 (or float32) to prevent float16 CPU exponent overflow (inf/nan) during logits/temperature sampling
-            torch_dtype = torch.bfloat16
-            kwargs = {
-                "torch_dtype": torch_dtype,
-                "token": hf_token
-            }
-            try:
-                import accelerate
-                kwargs["low_cpu_mem_usage"] = True
-            except ImportError:
-                pass
-            self.model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+            from huggingface_hub import hf_hub_download
+            from llama_cpp import Llama
+            
+            logging.info(f"Downloading/Locating GGUF file for {model_name}...")
+            gguf_path = hf_hub_download(repo_id=model_name, filename="gemma-4-12b-it-qat-q4_0.gguf", token=hf_token)
+            
+            logging.info(f"Loading GGUF model from {gguf_path}...")
+            self.model = Llama(model_path=gguf_path, n_ctx=2048, verbose=False)
+            self.tok = None
         else:
+            self.tok = AutoTokenizer.from_pretrained(model_name, token=hf_token)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, token=hf_token)
+            self.model.eval()
 
-        self.model.eval()
         logging.info(f"Model {model_name} loaded successfully.")
 
     def _gen_gemma(self, text, task="en2hi"):
@@ -343,19 +340,16 @@ class Translator:
                 f"<start_of_turn>model\n"
             )
 
-        enc = self.tok(prompt, return_tensors="pt")
-        with self.torch.no_grad():
-            out = self.model.generate(
-                **enc,
-                max_new_tokens=256,
-                do_sample=True,
-                temperature=0.2,
-                top_p=0.9
-            )
-        gen_tokens = out[0][enc.input_ids.shape[1]:]
-        res = self.tok.decode(gen_tokens, skip_special_tokens=True).strip()
-        res = re.sub(r'^["\']|["\']$', '', res)
-        return res
+        res = self.model(
+            prompt,
+            max_tokens=256,
+            temperature=0.2,
+            top_p=0.9,
+            echo=False
+        )
+        out_text = res["choices"][0]["text"].strip()
+        out_text = re.sub(r'^["\']|["\']$', '', out_text)
+        return out_text
 
     def _gen_nllb(self, text, src, tgt, beams=None):
         self.tok.src_lang = src

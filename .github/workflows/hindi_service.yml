@@ -124,7 +124,7 @@ jobs:
           python -m pip install --upgrade pip
           # NLLB stack (CPU). transformers pinned to 4.x for stability.
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install "transformers>=4.49.0" sentencepiece sacremoses huggingface_hub libsql accelerate compressed-tensors
+          pip install "transformers>=4.49.0" sentencepiece sacremoses huggingface_hub libsql accelerate llama-cpp-python
 
       - name: Clone Entity Library (shard 0 only)
         if: ${{ matrix.shard == 0 }}
@@ -151,7 +151,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGINGFACE_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
-          TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || 'kunhunjon/gemma-4-12B-it-qat-assistant-w4a16-ct' }}
+          TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || 'google/gemma-4-12B-it-qat-q4_0-gguf' }}
           SHARD_ID: ${{ matrix.shard }}
           NUM_SHARDS: 1
           SATYA_ENTITY_LIBRARY_DIR: ./temp_entity_lib

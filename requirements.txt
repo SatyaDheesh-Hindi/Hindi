@@ -4,5 +4,5 @@ sentencepiece
 sacremoses
 huggingface-hub
 accelerate>=0.26.0
-compressed-tensors
+llama-cpp-python
 pytest
