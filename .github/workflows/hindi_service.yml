@@ -35,14 +35,7 @@ jobs:
     steps:
       - id: set-shards
         run: |
-          INPUT_SHARD="${{ github.event.inputs.shard }}"
-          if [ -z "$INPUT_SHARD" ]; then
-            INPUT_SHARD="${{ github.event.client_payload.shard }}"
-          fi
-          if [ -z "$INPUT_SHARD" ]; then
-            INPUT_SHARD="0"
-          fi
-          echo "shards=[$INPUT_SHARD]" >> $GITHUB_OUTPUT
+          echo "shards=[0]" >> $GITHUB_OUTPUT
 
   translate:
     needs: setup
@@ -160,7 +153,7 @@ jobs:
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
           TRANSLATION_MODEL: ${{ vars.TRANSLATION_MODEL || 'kunhunjon/gemma-4-12B-it-qat-assistant-w4a16-ct' }}
           SHARD_ID: ${{ matrix.shard }}
-          NUM_SHARDS: 20
+          NUM_SHARDS: 1
           SATYA_ENTITY_LIBRARY_DIR: ./temp_entity_lib
         run: |
           ARGS=""
@@ -168,7 +161,7 @@ jobs:
             ARGS="--test-run"
           fi
           
-          python3 hindi_pipeline.py --shard ${{ matrix.shard }} --num-shards 20 $ARGS | tee pipeline_output.log
+          python3 hindi_pipeline.py --shard ${{ matrix.shard }} --num-shards 1 $ARGS | tee pipeline_output.log
           
           if grep -q "has_more=true" pipeline_output.log; then
             echo "has_more=true" >> $GITHUB_OUTPUT
