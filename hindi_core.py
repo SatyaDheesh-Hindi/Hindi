@@ -257,7 +257,7 @@ class Translator:
         from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
 
         if model_name is None:
-            model_name = os.environ.get("TRANSLATION_MODEL", "google/gemma-2-9b-it")
+            model_name = os.environ.get("TRANSLATION_MODEL", "kunhunjon/gemma-4-12B-it-qat-assistant-w4a16-ct")
 
         self.torch = torch
         self.beams = beams
