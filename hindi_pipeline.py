@@ -73,24 +73,33 @@ def get_translation_db_connection():
 # --- FAILURE TRACKING ---
 # ==============================================================================
 def record_failure(cur_b, conn_b, conn_a, article_id, msg):
-    try:
-        cur_b.execute(
-            """INSERT INTO translation_failures (article_id, attempts, last_error) VALUES (?, 1, ?)
-               ON CONFLICT(article_id) DO UPDATE SET attempts = attempts + 1, last_error = excluded.last_error""",
-            (article_id, str(msg)[:500]))
-        conn_b.commit()
+    for attempt in range(3):
+        try:
+            c_b = get_translation_db_connection()
+            cur_b_local = c_b.cursor()
+            cur_b_local.execute(
+                """INSERT INTO translation_failures (article_id, attempts, last_error) VALUES (?, 1, ?)
+                   ON CONFLICT(article_id) DO UPDATE SET attempts = attempts + 1, last_error = excluded.last_error""",
+                (article_id, str(msg)[:500]))
+            c_b.commit()
 
-        cur_b.execute("SELECT attempts FROM translation_failures WHERE article_id = ?", (article_id,))
-        r = cur_b.fetchone()
-        if r and r[0] >= MAX_FAILURE_ATTEMPTS:
-            try:
-                cur_a = conn_a.cursor()
-                cur_a.execute("UPDATE articles SET translated_hi = 2 WHERE id = ?", (article_id,))
-                conn_a.commit()
-            except Exception:
-                pass
-    except Exception as e:
-        logging.error(f"Failed to record failure for {article_id}: {e}")
+            cur_b_local.execute("SELECT attempts FROM translation_failures WHERE article_id = ?", (article_id,))
+            r = cur_b_local.fetchone()
+            c_b.close()
+
+            if r and r[0] >= MAX_FAILURE_ATTEMPTS:
+                try:
+                    c_a = get_db_connection()
+                    cur_a_local = c_a.cursor()
+                    cur_a_local.execute("UPDATE articles SET translated_hi = 2 WHERE id = ?", (article_id,))
+                    c_a.commit()
+                    c_a.close()
+                except Exception:
+                    pass
+            break
+        except Exception as e:
+            logging.warning(f"Failed to record failure for {article_id} (attempt {attempt+1}/3): {e}")
+            time.sleep(1)
 
 # ==============================================================================
 # --- ARTICLES ---
@@ -109,12 +118,12 @@ def process_articles(translator, shard, num_shards, batch_size):
             "ORDER BY id DESC LIMIT ?",
             (num_shards, shard, batch_size))
         chunk_rows = cur_a.fetchall()
+        conn_a.close()
     except Exception as e:
         logging.critical(f"Fetch candidate articles from DB A failed: {e}")
         return False, False
 
     if not chunk_rows:
-        conn_a.close()
         logging.info("No articles to translate.")
         return True, False
 
@@ -123,9 +132,10 @@ def process_articles(translator, shard, num_shards, batch_size):
         cur_b = conn_b.cursor()
         cur_b.execute("CREATE TABLE IF NOT EXISTS translations (article_id INTEGER PRIMARY KEY, rephrased_article_hi BLOB, rephrased_title_hi TEXT, headline_verified_hi INTEGER DEFAULT 0)")
         cur_b.execute("CREATE TABLE IF NOT EXISTS translation_failures (article_id INTEGER PRIMARY KEY, attempts INTEGER DEFAULT 0, last_error TEXT)")
+        conn_b.commit()
+        conn_b.close()
     except Exception as e:
         logging.critical(f"Connect DB B failed: {e}")
-        conn_a.close()
         return False, False
 
     has_more = len(chunk_rows) >= batch_size
@@ -137,13 +147,13 @@ def process_articles(translator, shard, num_shards, batch_size):
                 eng_summary = zlib.decompress(comp).decode('utf-8')
             except (zlib.error, TypeError, UnicodeDecodeError) as ze:
                 logging.error(f"Decompress failed ID {article_id}: {ze}")
-                record_failure(cur_b, conn_b, conn_a, article_id, f"decompress: {ze}")
+                record_failure(None, None, None, article_id, f"decompress: {ze}")
                 continue
 
             # 1. Translate body
             hi_body_raw = translator.en2hi(eng_summary)
             if not hi_body_raw.strip():
-                record_failure(cur_b, conn_b, conn_a, article_id, "empty body translation")
+                record_failure(None, None, None, article_id, "empty body translation")
                 continue
 
             # 2. Translate generated English headline
@@ -155,7 +165,7 @@ def process_articles(translator, shard, num_shards, batch_size):
             ok_title, rt = core.verify(eng_headline or "", hi_title_raw, back=hi_back, is_gemma=getattr(translator, 'is_gemma', True))
             if not ok_body:
                 logging.warning(f"Body gate FAIL ID {article_id}: {rb}")
-                record_failure(cur_b, conn_b, conn_a, article_id, f"body gate: {rb}")
+                record_failure(None, None, None, article_id, f"body gate: {rb}")
                 continue
             if not ok_title:
                 logging.info(f"Title gate fail ID {article_id}; using body lead.")
@@ -166,23 +176,33 @@ def process_articles(translator, shard, num_shards, batch_size):
             hi_title = core.apply_glossary(hi_title_raw, glossary).strip('"\'। ').strip()
 
             comp_hi = zlib.compress(hi_body.encode('utf-8'))
-            cur_b.execute(
-                "INSERT OR REPLACE INTO translations (article_id, rephrased_article_hi, rephrased_title_hi, headline_verified_hi) VALUES (?, ?, ?, ?)",
-                (article_id, comp_hi, hi_title, 1))
-            cur_b.execute("DELETE FROM translation_failures WHERE article_id = ?", (article_id,))
-            conn_b.commit()
 
-            # Mark translated_hi = 1 in DB A so this row is never re-queried
-            try:
-                cur_a.execute("UPDATE articles SET translated_hi = 1 WHERE id = ?", (article_id,))
-                conn_a.commit()
-            except Exception as ze:
-                logging.error(f"Failed to update translated_hi flag in DB A for {article_id}: {ze}")
+            # Save with automatic reconnection on Hrana timeout
+            for attempt in range(3):
+                try:
+                    c_b = get_translation_db_connection()
+                    cur_b_local = c_b.cursor()
+                    cur_b_local.execute(
+                        "INSERT OR REPLACE INTO translations (article_id, rephrased_article_hi, rephrased_title_hi, headline_verified_hi) VALUES (?, ?, ?, ?)",
+                        (article_id, comp_hi, hi_title, 1))
+                    cur_b_local.execute("DELETE FROM translation_failures WHERE article_id = ?", (article_id,))
+                    c_b.commit()
+                    c_b.close()
+
+                    c_a = get_db_connection()
+                    cur_a_local = c_a.cursor()
+                    cur_a_local.execute("UPDATE articles SET translated_hi = 1 WHERE id = ?", (article_id,))
+                    c_a.commit()
+                    c_a.close()
+                    break
+                except Exception as ex_db:
+                    logging.warning(f"Save translation DB error for {article_id} (attempt {attempt+1}/3): {ex_db}")
+                    time.sleep(1)
 
             logging.info(f"Saved ID {article_id}: '{hi_title}'")
         except Exception as ex:
             logging.error(f"Error ID {article_id}: {ex}")
-            record_failure(cur_b, conn_b, conn_a, article_id, ex)
+            record_failure(None, None, None, article_id, ex)
 
     conn_a.close()
     conn_b.close()
