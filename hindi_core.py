@@ -257,7 +257,7 @@ class Translator:
         from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
 
         if model_name is None:
-            model_name = os.environ.get("TRANSLATION_MODEL", "bartowski/sarvam-1-GGUF")
+            model_name = os.environ.get("TRANSLATION_MODEL", "bartowski/aya-expanse-8b-GGUF")
 
         self.torch = torch
         self.beams = beams
@@ -272,12 +272,12 @@ class Translator:
             from llama_cpp import Llama
             
             logging.info(f"Downloading/Locating GGUF file for {model_name}...")
-            filename = "sarvam-1-Q6_K.gguf" if "sarvam" in model_name.lower() else "gemma-4-12b-it-qat-q4_0.gguf"
+            filename = "aya-expanse-8b-Q6_K.gguf" if "aya" in model_name.lower() else "sarvam-1-Q6_K.gguf"
             gguf_path = hf_hub_download(repo_id=model_name, filename=filename, token=hf_token)
             
             logging.info(f"Loading GGUF model from {gguf_path}...")
             # We enable chat format natively so it uses the model's own chat template
-            self.model = Llama(model_path=gguf_path, n_ctx=4096, verbose=False, chat_format="chatml" if "sarvam" in model_name.lower() else None)
+            self.model = Llama(model_path=gguf_path, n_ctx=4096, verbose=False, chat_format="cohere" if "aya" in model_name.lower() else "chatml")
             self.tok = None
         else:
             self.tok = AutoTokenizer.from_pretrained(model_name, token=hf_token)
