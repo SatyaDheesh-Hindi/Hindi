@@ -245,140 +245,145 @@ def unmask_all(text, mask_map):
     return text
 
 # ---------------------------------------------------------------------------
-# NLLB wrapper
+# Quality signals (used by the pipeline gates and the GitHub quality report)
 # ---------------------------------------------------------------------------
+# Heavy / Sanskritised words the style guide says to avoid.
+HEAVY_WORDS = ["एवं", "हेतु", "तत्पश्चात", "उपरांत", "अवगत", "संवाददाता", "विद्यालय", "महाविद्यालय",
+               "दूरभाष", "प्रचालन", "चलचित्र", "समाचार पत्र", "कदापि", "यद्यपि", "अतः", "किंतु", "परंतु",
+               "सम्मिलित", "अत्यधिक", "उपरोक्त", "निम्नलिखित", "प्रतिवेदन", "संज्ञान", "अभियुक्त"]
+_ACRONYM = re.compile(r"^[A-Z0-9&\-]{2,6}$")
+
+def quality_signals(en, hi):
+    """Cheap, model-free signals for the report: English leakage, heavy words, length."""
+    words = re.findall(r"[A-Za-z][A-Za-z'\-]*", hi or "")
+    latin = [w for w in words if not _ACRONYM.match(w)]
+    heavy = [w for w in HEAVY_WORDS if w in (hi or "")]
+    return {
+        "latin_words": latin[:12], "latin_count": len(latin),
+        "heavy_words": heavy,
+        "len_ratio": round(len(hi or "") / max(1, len(en or "")), 2),
+    }
+
 # ---------------------------------------------------------------------------
-# Translation Model Wrapper (Gemma FP16 / NLLB)
+# Hindi writer (LLM, GGUF via llama.cpp)
 # ---------------------------------------------------------------------------
+PROMPT_VERSION = "hi-v3.0"
+MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
+MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
+EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
+
+STYLE = """You write Hindi news for a popular Indian news app. Your readers are ordinary people in Delhi, Lucknow, Patna, Jaipur and Mumbai who read Hindi news on their phones.
+
+Rewrite the English news below as a Hindi reporter would write it for this app. Do not translate word by word.
+
+STYLE
+- Everyday spoken Hindi, the way a good TV news anchor talks. Short, clear sentences. Active voice.
+- Common English words stay English but are written in Devanagari: पुलिस, कोर्ट, स्कीम, रिपोर्ट, कंपनी, टीम, प्रोजेक्ट, बजट, अरेस्ट, फेक, ऑफिस.
+- Avoid heavy Sanskrit-style words: एवं, हेतु, तत्पश्चात, उपरांत, अवगत, संवाददाता, विद्यालय, किंतु, परंतु, अतः.
+- Names of people, places, parties and brands in Devanagari. Acronyms stay in English letters: BJP, AAP, HAL, UPI, GST, IPL, CBI.
+- Write numbers as digits exactly as in the English (40 लाख, 12,000 करोड़, 2027). Use लाख/करोड़ and रुपये.
+- You may reorder or merge sentences so it reads naturally, but keep every fact, name, date and number. Add nothing that is not in the English. No opinions.
+- Headline: at most 12 words, punchy, no full stop, keeps the main name or number.
+
+Reply only with JSON: {"headline": "...", "body": "..."}"""
+
+SHORT_STYLE = """You write short Hindi text (headlines, timeline updates, job titles) for a Hindi news app.
+Everyday spoken Hindi; common English words in Devanagari; acronyms (BJP, CBI, UPI) in English letters;
+numbers as digits exactly as given; names in Devanagari; no full stop; add nothing.
+Reply only with JSON: {"hindi": "..."}"""
+
+ARTICLE_SCHEMA = {"type": "object", "properties": {"headline": {"type": "string"}, "body": {"type": "string"}},
+                  "required": ["headline", "body"]}
+SHORT_SCHEMA = {"type": "object", "properties": {"hindi": {"type": "string"}}, "required": ["hindi"]}
+
+
+def load_examples(path=EXAMPLES_PATH):
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        return d.get("articles", []), d.get("short", [])
+    except Exception as e:
+        logging.error(f"Failed to load style examples: {e}")
+        return [], []
+
+
+def _article_msg(title, body):
+    return f"Title: {title or ''}\nText: {body or ''}"
+
+
 class Translator:
-    """Lazy Translator wrapper supporting Gemma FP16/BF16 CausalLM and NLLB Seq2Seq models."""
-    def __init__(self, model_name=None, beams=4, dtype="float16"):
-        import torch
-        from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
+    """Gemma 4 12B (GGUF) Hindi writer. Keeps the old method names so the pipeline
+    works unchanged: en2hi (body), en2hi_short (headline/milestone/role), hi2en (unused)."""
+    is_llm = True
+    is_gemma = True  # entity gate off: names are written in Devanagari by design
 
-        if model_name is None:
-            model_name = os.environ.get("TRANSLATION_MODEL", "bartowski/aya-expanse-8b-GGUF")
+    def __init__(self, model_repo=None, model_file=None, n_ctx=6144):
+        from huggingface_hub import hf_hub_download
+        from llama_cpp import Llama
+        self.model_repo = model_repo or MODEL_REPO
+        self.model_file = model_file or MODEL_FILE
+        self.model_name = self.model_file.rsplit(".", 1)[0]
+        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or None
+        logging.info(f"Loading {self.model_repo}/{self.model_file} ...")
+        path = hf_hub_download(repo_id=self.model_repo, filename=self.model_file, token=token)
+        self.model = Llama(model_path=path, n_ctx=n_ctx, n_threads=os.cpu_count(),
+                           n_gpu_layers=int(os.environ.get("HINDI_GPU_LAYERS", "-1")), verbose=False)
+        self.examples, self.short_examples = load_examples()
+        logging.info(f"Model loaded ({len(self.examples)} article examples, {len(self.short_examples)} short).")
 
-        self.torch = torch
-        self.beams = beams
-        self.model_name = model_name
-        self.is_llm = True  # Always treat as LLM now since we use create_chat_completion
-        hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    # -- chat plumbing: the style guide goes in the first user turn (works with any chat template)
+    def _chat(self, messages, schema, max_tokens, temperature=0.3):
+        out = self.model.create_chat_completion(
+            messages=messages, response_format={"type": "json_object", "schema": schema},
+            temperature=temperature, top_p=0.9, max_tokens=max_tokens)
+        return json.loads(out["choices"][0]["message"]["content"])
 
-        logging.info(f"Loading translation model {model_name} (is_gemma={self.is_llm})...")
+    def _article_messages(self, title, body):
+        msgs, first = [], True
+        for ex in self.examples:
+            content = _article_msg(ex["en_title"], ex["en_body"])
+            msgs.append({"role": "user", "content": (STYLE + "\n\n" if first else "") + content})
+            msgs.append({"role": "assistant", "content": json.dumps(
+                {"headline": ex["hi_headline"], "body": ex["hi_body"]}, ensure_ascii=False)})
+            first = False
+        msgs.append({"role": "user", "content": (STYLE + "\n\n" if first else "") + _article_msg(title, body)})
+        return msgs
 
-        if self.is_llm:
-            from huggingface_hub import hf_hub_download
-            from llama_cpp import Llama
-            
-            logging.info(f"Downloading/Locating GGUF file for {model_name}...")
-            filename = "aya-expanse-8b-Q6_K.gguf" if "aya" in model_name.lower() else "sarvam-1-Q6_K.gguf"
-            gguf_path = hf_hub_download(repo_id=model_name, filename=filename, token=hf_token)
-            
-            logging.info(f"Loading GGUF model from {gguf_path}...")
-            # We enable chat format natively so it uses the model's own chat template
-            self.model = Llama(model_path=gguf_path, n_ctx=4096, verbose=False, chat_format="cohere" if "aya" in model_name.lower() else "chatml")
-            self.tok = None
-        else:
-            self.tok = AutoTokenizer.from_pretrained(model_name, token=hf_token)
-            self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, token=hf_token)
-            self.model.eval()
-
-        logging.info(f"Model {model_name} loaded successfully.")
-
-    def _gen_llm(self, text, task="en2hi"):
-        if task == "en2hi":
-            sys_prompt = (
-                "You are a Hindi translator for a popular Indian news app. You write the natural, everyday Hindi that urban Indians actually speak in Delhi, Mumbai and Bangalore.\n\n"
-                "RULES\n"
-                "1. Write in Devanagari script.\n"
-                "2. Use simple spoken Hindi, the way a friend or a TV anchor would say it. Short sentences.\n"
-                "3. Keep common English words as English, written in Devanagari:\n"
-                "   पुलिस, स्कूल, कॉलेज, ऑफिस, कंपनी, मोबाइल, वीडियो, रिपोर्ट, सोशल मीडिया, ट्रेन, फ्लाइट, मार्केट, बजट, इंटरव्यू, सैलरी, टीम, प्रोजेक्ट.\n"
-                "4. Do NOT use heavy Sanskrit-style Hindi. Avoid words like: विद्यालय, दूरभाष, संवाददाता, अवगत, प्रचालन, समाचार पत्र, महाविद्यालय, चलचित्र.\n"
-                "5. Keep names, places, brands, numbers, dates and money exactly as given (write names in Devanagari). Acronyms like AI, UPI, IPL, BJP stay in English letters.\n"
-                "6. Do not add, remove or explain anything. Keep the length close to the original.\n"
-                "7. Output ONLY the Hindi translation. No English, no notes, no headings.\n\n"
-                "EXAMPLE\n"
-                "English: Delhi Police have arrested three men for allegedly cheating people through a fake job website. Officials said the gang collected over Rs 40 lakh from at least 200 applicants. The website has been taken down and an investigation is on.\n"
-                "Hindi: दिल्ली पुलिस ने तीन लोगों को अरेस्ट किया है। इन पर एक फेक जॉब वेबसाइट के ज़रिए लोगों से ठगी करने का आरोप है। अफ़सरों ने बताया कि गैंग ने कम से कम 200 अप्लिकेंट्स से 40 लाख रुपये से ज़्यादा वसूल लिए। वेबसाइट बंद कर दी गई है और जांच चल रही है।"
-            )
-            user_prompt = f"Now translate this article:\nEnglish: {text}\nHindi:"
-            
-        elif task == "en2hi_headline":
-            sys_prompt = (
-                "You are a Hindi headline writer for a popular Indian news app. You write punchy headlines in the everyday Hindi that urban Indians speak.\n\n"
-                "RULES\n"
-                "1. Devanagari script. Maximum 10 words.\n"
-                "2. No full stop at the end. A comma or a dash is fine.\n"
-                "3. Simple spoken Hindi. Keep common English words in Devanagari (पुलिस, ट्रेन, फेक, अरेस्ट, स्टार्टअप). Acronyms like AI, UPI, IPL, BJP stay in English letters.\n"
-                "4. Avoid heavy Hindi words like संवाददाता, अवगत, प्रचालन, विद्यालय.\n"
-                "5. Keep the main name or number from the original.\n"
-                "6. Do not invent drama or details that are not in the headline.\n"
-                "7. Output ONLY the Hindi headline. Nothing else.\n\n"
-                "EXAMPLES\n"
-                "English: Delhi Police arrest three for running fake job website, Rs 40 lakh duped\n"
-                "Hindi: फेक जॉब वेबसाइट से 40 लाख की ठगी, तीन अरेस्ट\n\n"
-                "English: Mumbai local train services delayed by two hours after technical fault\n"
-                "Hindi: टेक्निकल फॉल्ट से मुंबई लोकल दो घंटे लेट\n\n"
-                "English: Startup founder says AI will not replace junior developers\n"
-                "Hindi: स्टार्टअप फाउंडर बोले— जूनियर डेवलपर्स की जगह AI नहीं लेगा"
-            )
-            user_prompt = f"Now translate this headline:\nEnglish: {text}\nHindi:"
-        else:
-            sys_prompt = "You are a professional Hindi to English translator. Output ONLY the translated English text."
-            user_prompt = f"Translate the following Hindi text accurately into English:\n\n{text}"
-
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-
-        res = self.model.create_chat_completion(
-            messages=messages,
-            max_tokens=256,
-            temperature=0.2,
-            top_p=0.9
-        )
-        out_text = res["choices"][0]["message"]["content"].strip()
-        out_text = out_text.strip("'\"")
-        return out_text
-
-    def _gen_nllb(self, text, src, tgt, beams=None):
-        self.tok.src_lang = src
-        enc = self.tok(text, return_tensors="pt", truncation=True, max_length=256)
-        bos = self.tok.convert_tokens_to_ids(tgt)
-        with self.torch.no_grad():
-            out = self.model.generate(**enc, forced_bos_token_id=bos,
-                                      max_length=256, num_beams=beams or self.beams)
-        return self.tok.batch_decode(out, skip_special_tokens=True)[0]
+    def write_article(self, title, body):
+        """-> {"headline", "body", "attempts", "missing_numbers"} . One corrective retry
+        if numbers from the English are missing."""
+        text = re.sub(r"\*\*", "", body or "").strip()
+        title = re.sub(r"\*\*", "", title or "").strip()
+        msgs = self._article_messages(title, text)
+        budget = min(1200, 200 + len(text))
+        res = self._chat(msgs, ARTICLE_SCHEMA, budget)
+        attempts = 1
+        ok, missing, _ = number_gate(text, res.get("body", ""))
+        if not ok:
+            msgs += [{"role": "assistant", "content": json.dumps(res, ensure_ascii=False)},
+                     {"role": "user", "content": "These numbers from the English are missing in your Hindi: "
+                      + ", ".join(missing) + ". Rewrite the same Hindi with every number written exactly. Reply only with JSON."}]
+            res = self._chat(msgs, ARTICLE_SCHEMA, budget, temperature=0.2)
+            attempts = 2
+            ok, missing, _ = number_gate(text, res.get("body", ""))
+        clean = lambda x: re.sub(r"\s+", " ", (x or "")).strip().strip('"\'')
+        return {"headline": clean(res.get("headline")).rstrip("।. "), "body": clean(res.get("body")),
+                "attempts": attempts, "missing_numbers": [] if ok else missing}
 
     def en2hi(self, text):
-        """Translate English -> Hindi article body with Multi-Pattern Token Masking (times, money, names)."""
-        masked_text, mask_map = extract_and_mask_all(text)
-        sents = split_sentences(masked_text)
-        if self.is_llm:
-            raw_hi = " ".join(self._gen_llm(s, "en2hi") for s in sents)
-        else:
-            raw_hi = " ".join(self._gen_nllb(s, "eng_Latn", "hin_Deva") for s in sents)
-        return unmask_all(raw_hi, mask_map)
+        return self.write_article("", text)["body"]
 
     def en2hi_short(self, text):
-        """Single short string (headline, title, milestone) with Multi-Pattern Token Masking."""
         text = re.sub(r"\*\*", "", (text or "").strip())
         if not text:
             return ""
-        masked_text, mask_map = extract_and_mask_all(text)
-        if self.is_llm:
-            raw_hi = self._gen_llm(masked_text, "en2hi_headline")
-        else:
-            raw_hi = self._gen_nllb(masked_text, "eng_Latn", "hin_Deva")
-        return unmask_all(raw_hi, mask_map)
+        msgs, first = [], True
+        for ex in self.short_examples:
+            msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + ex["en"]})
+            msgs.append({"role": "assistant", "content": json.dumps({"hindi": ex["hi"]}, ensure_ascii=False)})
+            first = False
+        msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + text})
+        return self._chat(msgs, SHORT_SCHEMA, 120).get("hindi", "").strip().rstrip("।. ")
 
     def hi2en(self, text):
-        if not text:
-            return ""
-        if self.is_llm:
-            return self._gen_llm(text, "hi2en")
-        else:
-            return self._gen_nllb(text, "hin_Deva", "eng_Latn", beams=2)
+        return ""  # back-translation not used on the LLM path (names are Devanagari by design)

@@ -1,8 +1,4 @@
 libsql
-transformers>=4.49.0
-sentencepiece
-sacremoses
 huggingface-hub
-accelerate>=0.26.0
-llama-cpp-python
+llama-cpp-python>=0.3.35  # Gemma 4 support
 pytest

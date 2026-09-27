@@ -1,7 +1,8 @@
 """
 Satya Hindi Translation Pipeline.
 
-Faithful NMT (NLLB-200-1.3B) -> glossary substitution -> verification gates.
+Gemma 4 12B rewrites each article in everyday Hindi (hindi_core.Translator) -> verification gates
+(numbers, script).
 
 Only translations that pass every gate are saved. Failures are recorded in
 translation_failures and excluded after MAX_FAILURE_ATTEMPTS, so no row can
@@ -105,7 +106,7 @@ def record_failure(cur_b, conn_b, conn_a, article_id, msg):
 # --- ARTICLES ---
 # ==============================================================================
 def process_articles(translator, shard, num_shards, batch_size):
-    logging.info("--- Articles & Headlines (NLLB) ---")
+    logging.info(f"--- Articles & Headlines ({core.PROMPT_VERSION}) ---")
     glossary = core.load_glossary()
 
     try:
@@ -150,34 +151,22 @@ def process_articles(translator, shard, num_shards, batch_size):
                 record_failure(None, None, None, article_id, f"decompress: {ze}")
                 continue
 
-            # 1. Translate body
-            hi_body_raw = translator.en2hi(eng_summary)
-            if not hi_body_raw.strip():
-                record_failure(None, None, None, article_id, "empty body translation")
+            # 1. Write headline + body together (one call, whole article, style examples)
+            out = translator.write_article(eng_headline, eng_summary)
+            hi_body, hi_title = out["body"], out["headline"]
+            if not hi_body.strip():
+                record_failure(None, None, None, article_id, "empty body")
                 continue
 
-            # 2. Translate generated English headline
-            hi_title_raw = translator.en2hi_short(eng_headline)
-
-            # 3. Verify BEFORE glossary with back-translation (guarantees zero entity loss)
-            hi_back = translator.hi2en(hi_body_raw)
-            ok_body, rb = core.verify(eng_summary, hi_body_raw, back=hi_back, is_gemma=getattr(translator, 'is_gemma', True))
-            ok_title, rt = core.verify(eng_headline or "", hi_title_raw, back=hi_back, is_gemma=getattr(translator, 'is_gemma', True))
+            # 2. Gates: every number kept, Devanagari/Latin script only
+            ok_body, rb = core.verify(eng_summary, hi_body, is_gemma=True)
             if not ok_body:
                 logging.warning(f"Body gate FAIL ID {article_id}: {rb}")
                 record_failure(None, None, None, article_id, f"body gate: {rb}")
                 continue
-            if not ok_title:
-                logging.info(f"Title gate fail ID {article_id}; using body lead.")
-                hi_title_raw = hi_body_raw.split("।")[0].strip() or hi_body_raw[:80]
-
-            # 4. Apply glossary ONLY for NLLB (Gemma already follows conversational urban Hindi prompts)
-            if not getattr(translator, 'is_gemma', True):
-                hi_body = core.apply_glossary(hi_body_raw, glossary)
-                hi_title = core.apply_glossary(hi_title_raw, glossary).strip('"\'। ').strip()
-            else:
-                hi_body = hi_body_raw
-                hi_title = hi_title_raw.strip('"\'। ').strip()
+            ok_title, _ = core.script_gate(hi_title)
+            if not hi_title or not ok_title:
+                hi_title = hi_body.split("।")[0].strip()[:90]
 
             comp_hi = zlib.compress(hi_body.encode('utf-8'))
 
@@ -216,7 +205,7 @@ def process_articles(translator, shard, num_shards, batch_size):
 # --- TIMELINES ---
 # ==============================================================================
 def process_timelines(translator, shard, num_shards, batch_size):
-    logging.info("--- Timelines & Milestones (NLLB) ---")
+    logging.info("--- Timelines & Milestones ---")
     glossary = core.load_glossary()
     try:
         conn_a = get_db_connection()
@@ -252,12 +241,10 @@ def process_timelines(translator, shard, num_shards, batch_size):
 
     for ev_id, title in events:
         try:
-            raw = translator.en2hi_short(title)
-            back_t = translator.hi2en(raw)
-            ok, _ = core.verify(title or "", raw, back=back_t)
+            hi = translator.en2hi_short(title)
+            ok, _ = core.verify(title or "", hi)
             if not ok:
                 continue
-            hi = core.apply_glossary(raw, glossary)
             cur_b.execute("INSERT OR REPLACE INTO event_translations (event_id, title_hi) VALUES (?, ?)", (ev_id, hi))
             conn_b.commit()
             try:
@@ -269,12 +256,10 @@ def process_timelines(translator, shard, num_shards, batch_size):
 
     for ev_id, art_id, desc in milestones:
         try:
-            raw = translator.en2hi_short(desc)
-            back_m = translator.hi2en(raw)
-            ok, _ = core.verify(desc or "", raw, back=back_m)
+            hi = translator.en2hi_short(desc)
+            ok, _ = core.verify(desc or "", hi)
             if not ok:
                 continue
-            hi = core.apply_glossary(raw, glossary)
             cur_b.execute("INSERT OR REPLACE INTO event_milestone_translations (event_id, article_id, milestone_hi) VALUES (?, ?, ?)", (ev_id, art_id, hi))
             conn_b.commit()
         except Exception as ex:
@@ -288,7 +273,7 @@ def process_timelines(translator, shard, num_shards, batch_size):
 # --- ENTITIES (shard 0 only) ---
 # ==============================================================================
 def process_entities(translator):
-    logging.info("--- Entities (NLLB, shard 0) ---")
+    logging.info("--- Entities (shard 0) ---")
     glossary = core.load_glossary()
     lib = os.environ.get('SATYA_ENTITY_LIBRARY_DIR', '').strip() or os.path.join(_D, "satya-entity-library")
     eng_path = os.path.join(lib, "entities.json")
@@ -312,8 +297,7 @@ def process_entities(translator):
             hi = {}
 
     def tr(text):
-        raw = translator.en2hi_short(text)
-        return core.apply_glossary(raw, glossary)
+        return translator.en2hi_short(text) if text else ""
 
     hi['metadata'] = eng.get('metadata', {})
     hi['international'] = eng.get('international', {})

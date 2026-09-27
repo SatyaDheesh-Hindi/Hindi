@@ -1,0 +1,28 @@
+{
+  "_readme": "Style examples shown to the model before every article. Edit freely on GitHub: add the Hindi outputs you like best from quality reports (same shape), remove ones you don't. 3-5 examples work best. Keep every number from the English in the Hindi.",
+  "articles": [
+    {
+      "en_title": "Delhi Police arrest three for running fake job website, Rs 40 lakh duped",
+      "en_body": "Delhi Police have arrested three men for allegedly cheating people through a fake job website. Officials said the gang collected over Rs 40 lakh from at least 200 applicants. The website has been taken down and an investigation is on.",
+      "hi_headline": "फेक जॉब वेबसाइट से 40 लाख की ठगी, दिल्ली पुलिस ने तीन को अरेस्ट किया",
+      "hi_body": "दिल्ली पुलिस ने तीन लोगों को अरेस्ट किया है। इन पर एक फेक जॉब वेबसाइट के ज़रिए लोगों से ठगी करने का आरोप है। अफ़सरों ने बताया कि गैंग ने कम से कम 200 लोगों से 40 लाख रुपये से ज़्यादा वसूल लिए। वेबसाइट बंद कर दी गई है और जांच चल रही है।"
+    },
+    {
+      "en_title": "Centre approves Rs 12,000 crore scheme to build 500 cold storage units for farmers",
+      "en_body": "The Union Cabinet on Wednesday approved a Rs 12,000 crore scheme to build 500 cold storage units across the country. Agriculture Minister Shivraj Singh Chouhan said the units will help farmers store fruits and vegetables for longer and cut post-harvest losses, which the government estimates at nearly 15 per cent. The first 100 units will come up in Uttar Pradesh, Maharashtra and Bihar by March 2027.",
+      "hi_headline": "किसानों के लिए बनेंगे 500 कोल्ड स्टोरेज, कैबिनेट ने 12,000 करोड़ की स्कीम पास की",
+      "hi_body": "केंद्रीय कैबिनेट ने बुधवार को 12,000 करोड़ रुपये की एक स्कीम को मंज़ूरी दे दी। इसके तहत देशभर में 500 कोल्ड स्टोरेज बनाए जाएंगे। कृषि मंत्री शिवराज सिंह चौहान ने बताया कि इससे किसान फल और सब्ज़ियां ज़्यादा दिन तक रख पाएंगे और फसल कटने के बाद होने वाला नुकसान कम होगा। सरकार के मुताबिक अभी यह नुकसान करीब 15 फीसदी है। पहले 100 कोल्ड स्टोरेज मार्च 2027 तक उत्तर प्रदेश, महाराष्ट्र और बिहार में बनेंगे।"
+    },
+    {
+      "en_title": "India, US sign deal to jointly build F414 jet engines at HAL Bengaluru",
+      "en_body": "India and the United States have signed an agreement to jointly manufacture fighter jet engines in India, Defence Minister Rajnath Singh said on Monday. Under the deal, GE Aerospace and HAL will make the F414 engine at HAL's Bengaluru plant, with production expected to begin in 2028. The opposition Congress welcomed the move but asked the government to share details of the technology transfer.",
+      "hi_headline": "भारत में बनेंगे F414 फाइटर जेट इंजन, अमेरिका के साथ डील साइन",
+      "hi_body": "भारत और अमेरिका ने फाइटर जेट के इंजन मिलकर भारत में बनाने के समझौते पर साइन किए हैं। रक्षा मंत्री राजनाथ सिंह ने सोमवार को यह जानकारी दी। डील के तहत GE एयरोस्पेस और HAL मिलकर F414 इंजन HAL के बेंगलुरु प्लांट में बनाएंगे। प्रोडक्शन 2028 में शुरू होने की उम्मीद है। विपक्ष में बैठी कांग्रेस ने इस कदम का स्वागत किया, लेकिन सरकार से टेक्नोलॉजी ट्रांसफर की पूरी जानकारी देने को कहा।"
+    }
+  ],
+  "short": [
+    {"en": "Supreme Court stays demolition drive in Nuh after residents' plea", "hi": "नूंह में बुलडोज़र एक्शन पर सुप्रीम कोर्ट की रोक"},
+    {"en": "Opposition walks out as Lok Sabha passes new data protection bill", "hi": "विपक्ष के वॉकआउट के बीच लोकसभा में डेटा प्रोटेक्शन बिल पास"},
+    {"en": "Minister of State for Home Affairs", "hi": "गृह राज्य मंत्री"}
+  ]
+}

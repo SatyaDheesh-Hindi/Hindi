@@ -1,0 +1,107 @@
+name: Hindi Quality Test
+
+# Read-only on both databases. Writes Hindi for a fixed panel of real articles
+# (quality/panel.json) with the current prompt + style examples, and shows it next to
+# what is currently shipped. Results: the run's Summary tab, the `report` artifact,
+# and the quality-reports branch (report.html).
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'Article IDs (comma-separated). Empty = the standard 15-article panel'
+        required: false
+        default: ''
+      model_repo:
+        description: 'HF repo of the GGUF model'
+        required: false
+        default: 'unsloth/gemma-4-12b-it-GGUF'
+      model_file:
+        description: 'GGUF file'
+        required: false
+        default: 'gemma-4-12b-it-Q4_K_M.gguf'
+  push:
+    branches: [main]
+    paths: ['hindi_core.py', 'prompts/**', 'quality/panel.json']
+
+concurrency:
+  group: hindi-quality-${{ github.event.inputs.model_file || 'default' }}
+  cancel-in-progress: true
+
+env:
+  HINDI_MODEL_REPO: ${{ github.event.inputs.model_repo || 'unsloth/gemma-4-12b-it-GGUF' }}
+  HINDI_MODEL_FILE: ${{ github.event.inputs.model_file || 'gemma-4-12b-it-Q4_K_M.gguf' }}
+
+jobs:
+  write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ env.HINDI_MODEL_FILE }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          # prebuilt CPU wheels; portable source build as fallback (no AVX-off build, no stale native wheels)
+          CMAKE_ARGS="-DGGML_NATIVE=OFF" pip install -r requirements.txt \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --no-cache-dir
+      - name: Write Hindi
+        shell: bash
+        env:
+          SATYA_DB_URL: ${{ secrets.SATYA_DB_URL }}
+          SATYA_DB_TOKEN: ${{ secrets.SATYA_DB_TOKEN }}
+          SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
+          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python quality/run_quality.py --shard ${{ matrix.shard }}/3 --ids "${{ github.event.inputs.ids }}" --out qout/${{ matrix.shard }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q-${{ matrix.shard }}
+          path: qout/${{ matrix.shard }}.json
+
+  report:
+    needs: write
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: qout
+          merge-multiple: true
+      - name: Build report
+        run: python quality/report.py qout/*.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: |
+            report.html
+            report.md
+      - name: Publish to quality-reports branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN: ${{ github.run_id }}
+        run: |
+          set -e
+          mkdir -p /tmp/pub && cp report.html report.md /tmp/pub/ && cp -r qout /tmp/pub/
+          rm -rf /tmp/wt && mkdir /tmp/wt && cd /tmp/wt && git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q --depth 1 origin quality-reports; then git checkout -q -b quality-reports FETCH_HEAD; else git checkout -q --orphan quality-reports; fi
+          mkdir -p "runs/$RUN" && cp -r /tmp/pub/* "runs/$RUN"/ && cp /tmp/pub/report.html index.html && cp /tmp/pub/report.md latest.md
+          git add -A && git commit -qm "quality report $RUN" && git push -q origin HEAD:quality-reports
