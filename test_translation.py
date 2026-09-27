@@ -4,7 +4,7 @@ import sys
 from hindi_core import Translator
 
 def main():
-    print("--- STARTING TEST WITH SARVAM-1 ---")
+    print("--- STARTING TEST WITH AYA-EXPANSE-8B ---")
     t = Translator()
     
     test_english_article = """
@@ -19,7 +19,7 @@ def main():
     print(test_english_article.strip())
     print("-" * 50)
     
-    print("\nTranslating to Conversational Hindi using Sarvam-1...")
+    print("\nTranslating to Conversational Hindi using Aya-Expanse-8B...")
     
     hindi_translation = t.en2hi(test_english_article)
     
