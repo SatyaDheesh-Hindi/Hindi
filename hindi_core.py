@@ -131,14 +131,20 @@ def number_gate(en, hi):
     return (len(missing) == 0), missing, extra
 
 def script_gate(hi):
-    """Only Devanagari + Latin + digits/punct allowed."""
+    """Only Devanagari + Latin + digits/punct allowed; no corrupted bytes (U+FFFD) and no
+    single word that mixes Devanagari and Latin letters (e.g. 'अमरinder')."""
     bad = set()
     for ch in (hi or ""):
-        if ch.isalpha():
+        if ch == "\ufffd":
+            bad.add("\ufffd")
+        elif ch.isalpha():
             o = ord(ch)
             if not (0x0900 <= o <= 0x097F or o < 0x250):
                 bad.add(ch)
-    return (not bad), "".join(sorted(bad))
+    for w in re.findall(r"\S+", hi or ""):
+        if re.search(r"[\u0900-\u097F]", w) and re.search(r"[A-Za-z]", w):
+            bad.add(w)
+    return (not bad), " ".join(sorted(bad))
 
 def entity_gate(en, hi, back="", is_gemma=True):
     """Named entities in Gemma are transliterated to Devanagari natively based on instructions."""
@@ -267,7 +273,7 @@ def quality_signals(en, hi):
 # ---------------------------------------------------------------------------
 # Hindi writer (LLM, GGUF via llama.cpp)
 # ---------------------------------------------------------------------------
-PROMPT_VERSION = "hi-v3.0"
+PROMPT_VERSION = "hi-v3.1"
 MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
 MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
 EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
@@ -280,17 +286,20 @@ STYLE
 - Everyday spoken Hindi, the way a good TV news anchor talks. Short, clear sentences. Active voice.
 - Common English words stay English but are written in Devanagari: पुलिस, कोर्ट, स्कीम, रिपोर्ट, कंपनी, टीम, प्रोजेक्ट, बजट, अरेस्ट, फेक, ऑफिस.
 - Avoid heavy Sanskrit-style words: एवं, हेतु, तत्पश्चात, उपरांत, अवगत, संवाददाता, विद्यालय, किंतु, परंतु, अतः.
-- Names of people, places, parties and brands in Devanagari. Acronyms stay in English letters: BJP, AAP, HAL, UPI, GST, IPL, CBI.
-- Write numbers as digits exactly as in the English (40 लाख, 12,000 करोड़, 2027). Use लाख/करोड़ and रुपये.
+- Names of people, places, parties, brands, films, shows, books and newspapers in Devanagari (द हिंदू, आर्टिकल 370, कल्कि 2898 AD). Initials too: एम. साई कुमार, डी.के. शिवकुमार. Acronyms stay in English letters: BJP, AAP, HAL, UPI, GST, IPL, CBI.
+- Keep every title and designation: मुख्यमंत्री, पूर्व सांसद, प्रेसिडेंट. Ordinals the Hindi way: 72वें, 3rd -> तीसरे.
+- Write numbers and dates as digits exactly as in the English (40 लाख, 12,000 करोड़, 15 जुलाई, 2027). Use लाख/करोड़ and रुपये.
 - You may reorder or merge sentences so it reads naturally, but keep every fact, name, date and number. Add nothing that is not in the English. No opinions.
 - Headline: at most 12 words, punchy, no full stop, keeps the main name or number.
 
-Reply only with JSON: {"headline": "...", "body": "..."}"""
+Reply in exactly this format and nothing else:
+HEADLINE: <Hindi headline>
+BODY: <Hindi news>"""
 
 SHORT_STYLE = """You write short Hindi text (headlines, timeline updates, job titles) for a Hindi news app.
 Everyday spoken Hindi; common English words in Devanagari; acronyms (BJP, CBI, UPI) in English letters;
 numbers as digits exactly as given; names in Devanagari; no full stop; add nothing.
-Reply only with JSON: {"hindi": "..."}"""
+Reply with only the Hindi text, one line."""
 
 ARTICLE_SCHEMA = {"type": "object", "properties": {"headline": {"type": "string"}, "body": {"type": "string"}},
                   "required": ["headline", "body"]}
@@ -332,19 +341,30 @@ class Translator:
         logging.info(f"Model loaded ({len(self.examples)} article examples, {len(self.short_examples)} short).")
 
     # -- chat plumbing: the style guide goes in the first user turn (works with any chat template)
-    def _chat(self, messages, schema, max_tokens, temperature=0.3):
+    def _chat(self, messages, max_tokens, temperature=0.3):
+        # Plain text on purpose: llama.cpp's JSON-grammar sampling dropped and corrupted
+        # multi-byte Devanagari tokens (hi-v3.0 quality run: "���पूरथला", missing words).
         out = self.model.create_chat_completion(
-            messages=messages, response_format={"type": "json_object", "schema": schema},
-            temperature=temperature, top_p=0.9, max_tokens=max_tokens)
-        return json.loads(out["choices"][0]["message"]["content"])
+            messages=messages, temperature=temperature, top_p=0.9, max_tokens=max_tokens)
+        return out["choices"][0]["message"]["content"]
+
+    @staticmethod
+    def _parse_article(text):
+        t = (text or "").replace("**", "")
+        m_h = re.search(r"HEADLINE\s*:\s*(.+)", t)
+        m_b = re.search(r"BODY\s*:\s*(.+)", t, re.S)
+        head = m_h.group(1).strip() if m_h else ""
+        body = m_b.group(1).strip() if m_b else (t.split("\n", 1)[1].strip() if "\n" in t else t.strip())
+        if m_h and not m_b:
+            body = t[m_h.end():].strip()
+        return {"headline": head.splitlines()[0] if head else "", "body": body}
 
     def _article_messages(self, title, body):
         msgs, first = [], True
         for ex in self.examples:
             content = _article_msg(ex["en_title"], ex["en_body"])
             msgs.append({"role": "user", "content": (STYLE + "\n\n" if first else "") + content})
-            msgs.append({"role": "assistant", "content": json.dumps(
-                {"headline": ex["hi_headline"], "body": ex["hi_body"]}, ensure_ascii=False)})
+            msgs.append({"role": "assistant", "content": f"HEADLINE: {ex['hi_headline']}\nBODY: {ex['hi_body']}"})
             first = False
         msgs.append({"role": "user", "content": (STYLE + "\n\n" if first else "") + _article_msg(title, body)})
         return msgs
@@ -355,15 +375,17 @@ class Translator:
         text = re.sub(r"\*\*", "", body or "").strip()
         title = re.sub(r"\*\*", "", title or "").strip()
         msgs = self._article_messages(title, text)
-        budget = min(1200, 200 + len(text))
-        res = self._chat(msgs, ARTICLE_SCHEMA, budget)
+        budget = min(1400, 300 + len(text))
+        raw = self._chat(msgs, budget)
+        res = self._parse_article(raw)
         attempts = 1
         ok, missing, _ = number_gate(text, res.get("body", ""))
         if not ok:
-            msgs += [{"role": "assistant", "content": json.dumps(res, ensure_ascii=False)},
-                     {"role": "user", "content": "These numbers from the English are missing in your Hindi: "
-                      + ", ".join(missing) + ". Rewrite the same Hindi with every number written exactly. Reply only with JSON."}]
-            res = self._chat(msgs, ARTICLE_SCHEMA, budget, temperature=0.2)
+            msgs += [{"role": "assistant", "content": raw},
+                     {"role": "user", "content": "These numbers or dates from the English are missing in your Hindi: "
+                      + ", ".join(missing) + ". Rewrite the same Hindi with every number written exactly, in the same HEADLINE/BODY format."}]
+            raw = self._chat(msgs, budget, temperature=0.2)
+            res = self._parse_article(raw)
             attempts = 2
             ok, missing, _ = number_gate(text, res.get("body", ""))
         clean = lambda x: re.sub(r"\s+", " ", (x or "")).strip().strip('"\'')
@@ -380,10 +402,11 @@ class Translator:
         msgs, first = [], True
         for ex in self.short_examples:
             msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + ex["en"]})
-            msgs.append({"role": "assistant", "content": json.dumps({"hindi": ex["hi"]}, ensure_ascii=False)})
+            msgs.append({"role": "assistant", "content": ex["hi"]})
             first = False
         msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + text})
-        return self._chat(msgs, SHORT_SCHEMA, 120).get("hindi", "").strip().rstrip("।. ")
+        out = self._chat(msgs, 120).replace("**", "").strip().splitlines()
+        return (out[0] if out else "").strip().strip('"\'').rstrip("।. ")
 
     def hi2en(self, text):
         return ""  # back-translation not used on the LLM path (names are Devanagari by design)
