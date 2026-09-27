@@ -257,25 +257,27 @@ class Translator:
         from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
 
         if model_name is None:
-            model_name = os.environ.get("TRANSLATION_MODEL", "kunhunjon/gemma-4-12B-it-qat-assistant-w4a16-ct")
+            model_name = os.environ.get("TRANSLATION_MODEL", "bartowski/sarvam-1-GGUF")
 
         self.torch = torch
         self.beams = beams
         self.model_name = model_name
-        self.is_gemma = "gemma" in model_name.lower()
+        self.is_llm = True  # Always treat as LLM now since we use create_chat_completion
         hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
 
-        logging.info(f"Loading translation model {model_name} (is_gemma={self.is_gemma})...")
+        logging.info(f"Loading translation model {model_name} (is_gemma={self.is_llm})...")
 
-        if self.is_gemma:
+        if self.is_llm:
             from huggingface_hub import hf_hub_download
             from llama_cpp import Llama
             
             logging.info(f"Downloading/Locating GGUF file for {model_name}...")
-            gguf_path = hf_hub_download(repo_id=model_name, filename="gemma-4-12b-it-qat-q4_0.gguf", token=hf_token)
+            filename = "sarvam-1-Q6_K.gguf" if "sarvam" in model_name.lower() else "gemma-4-12b-it-qat-q4_0.gguf"
+            gguf_path = hf_hub_download(repo_id=model_name, filename=filename, token=hf_token)
             
             logging.info(f"Loading GGUF model from {gguf_path}...")
-            self.model = Llama(model_path=gguf_path, n_ctx=2048, verbose=False)
+            # We enable chat format natively so it uses the model's own chat template
+            self.model = Llama(model_path=gguf_path, n_ctx=4096, verbose=False, chat_format="chatml" if "sarvam" in model_name.lower() else None)
             self.tok = None
         else:
             self.tok = AutoTokenizer.from_pretrained(model_name, token=hf_token)
@@ -284,71 +286,62 @@ class Translator:
 
         logging.info(f"Model {model_name} loaded successfully.")
 
-    def _gen_gemma(self, text, task="en2hi"):
+    def _gen_llm(self, text, task="en2hi"):
         if task == "en2hi":
-            prompt = (
-                f"<start_of_turn>user\n"
-                f"You are a Hindi translator for a popular Indian news app. You write the natural, everyday Hindi that urban Indians actually speak in Delhi, Mumbai and Bangalore.\n\n"
-                f"Translate the English article at the end into conversational Hindi.\n\n"
-                f"RULES\n"
-                f"1. Write in Devanagari script.\n"
-                f"2. Use simple spoken Hindi, the way a friend or a TV anchor would say it. Short sentences.\n"
-                f"3. Keep common English words as English, written in Devanagari:\n"
-                f"   पुलिस, स्कूल, कॉलेज, ऑफिस, कंपनी, मोबाइल, वीडियो, रिपोर्ट, सोशल मीडिया, ट्रेन, फ्लाइट, मार्केट, बजट, इंटरव्यू, सैलरी, टीम, प्रोजेक्ट.\n"
-                f"4. Do NOT use heavy Sanskrit-style Hindi. Avoid words like: विद्यालय, दूरभाष, संवाददाता, अवगत, प्रचालन, समाचार पत्र, महाविद्यालय, चलचित्र.\n"
-                f"5. Keep names, places, brands, numbers, dates and money exactly as given (write names in Devanagari). Acronyms like AI, UPI, IPL, BJP stay in English letters.\n"
-                f"6. Do not add, remove or explain anything. Keep the length close to the original.\n"
-                f"7. Output ONLY the Hindi translation. No English, no notes, no headings.\n\n"
-                f"EXAMPLE\n"
-                f"English: Delhi Police have arrested three men for allegedly cheating people through a fake job website. Officials said the gang collected over Rs 40 lakh from at least 200 applicants. The website has been taken down and an investigation is on.\n"
-                f"Hindi: दिल्ली पुलिस ने तीन लोगों को अरेस्ट किया है। इन पर एक फेक जॉब वेबसाइट के ज़रिए लोगों से ठगी करने का आरोप है। अफ़सरों ने बताया कि गैंग ने कम से कम 200 अप्लिकेंट्स से 40 लाख रुपये से ज़्यादा वसूल लिए। वेबसाइट बंद कर दी गई है और जांच चल रही है。\n\n"
-                f"Now translate this article:\n"
-                f"English: {text}\n"
-                f"Hindi:<end_of_turn>\n"
-                f"<start_of_turn>model\n"
+            sys_prompt = (
+                "You are a Hindi translator for a popular Indian news app. You write the natural, everyday Hindi that urban Indians actually speak in Delhi, Mumbai and Bangalore.\n\n"
+                "RULES\n"
+                "1. Write in Devanagari script.\n"
+                "2. Use simple spoken Hindi, the way a friend or a TV anchor would say it. Short sentences.\n"
+                "3. Keep common English words as English, written in Devanagari:\n"
+                "   पुलिस, स्कूल, कॉलेज, ऑफिस, कंपनी, मोबाइल, वीडियो, रिपोर्ट, सोशल मीडिया, ट्रेन, फ्लाइट, मार्केट, बजट, इंटरव्यू, सैलरी, टीम, प्रोजेक्ट.\n"
+                "4. Do NOT use heavy Sanskrit-style Hindi. Avoid words like: विद्यालय, दूरभाष, संवाददाता, अवगत, प्रचालन, समाचार पत्र, महाविद्यालय, चलचित्र.\n"
+                "5. Keep names, places, brands, numbers, dates and money exactly as given (write names in Devanagari). Acronyms like AI, UPI, IPL, BJP stay in English letters.\n"
+                "6. Do not add, remove or explain anything. Keep the length close to the original.\n"
+                "7. Output ONLY the Hindi translation. No English, no notes, no headings.\n\n"
+                "EXAMPLE\n"
+                "English: Delhi Police have arrested three men for allegedly cheating people through a fake job website. Officials said the gang collected over Rs 40 lakh from at least 200 applicants. The website has been taken down and an investigation is on.\n"
+                "Hindi: दिल्ली पुलिस ने तीन लोगों को अरेस्ट किया है। इन पर एक फेक जॉब वेबसाइट के ज़रिए लोगों से ठगी करने का आरोप है। अफ़सरों ने बताया कि गैंग ने कम से कम 200 अप्लिकेंट्स से 40 लाख रुपये से ज़्यादा वसूल लिए। वेबसाइट बंद कर दी गई है और जांच चल रही है।"
             )
+            user_prompt = f"Now translate this article:\nEnglish: {text}\nHindi:"
+            
         elif task == "en2hi_headline":
-            prompt = (
-                f"<start_of_turn>user\n"
-                f"You are a Hindi headline writer for a popular Indian news app. You write punchy headlines in the everyday Hindi that urban Indians speak.\n\n"
-                f"Translate the English headline at the end into a conversational Hindi headline.\n\n"
-                f"RULES\n"
-                f"1. Devanagari script. Maximum 10 words.\n"
-                f"2. No full stop at the end. A comma or a dash is fine.\n"
-                f"3. Simple spoken Hindi. Keep common English words in Devanagari (पुलिस, ट्रेन, फेक, अरेस्ट, स्टार्टअप). Acronyms like AI, UPI, IPL, BJP stay in English letters.\n"
-                f"4. Avoid heavy Hindi words like संवाददाता, अवगत, प्रचालन, विद्यालय.\n"
-                f"5. Keep the main name or number from the original.\n"
-                f"6. Do not invent drama or details that are not in the headline.\n"
-                f"7. Output ONLY the Hindi headline. Nothing else.\n\n"
-                f"EXAMPLES\n"
-                f"English: Delhi Police arrest three for running fake job website, Rs 40 lakh duped\n"
-                f"Hindi: फेक जॉब वेबसाइट से 40 लाख की ठगी, तीन अरेस्ट\n\n"
-                f"English: Mumbai local train services delayed by two hours after technical fault\n"
-                f"Hindi: टेक्निकल फॉल्ट से मुंबई लोकल दो घंटे लेट\n\n"
-                f"English: Startup founder says AI will not replace junior developers\n"
-                f"Hindi: स्टार्टअप फाउंडर बोले— जूनियर डेवलपर्स की जगह AI नहीं लेगा\n\n"
-                f"Now translate this headline:\n"
-                f"English: {text}\n"
-                f"Hindi:<end_of_turn>\n"
-                f"<start_of_turn>model\n"
+            sys_prompt = (
+                "You are a Hindi headline writer for a popular Indian news app. You write punchy headlines in the everyday Hindi that urban Indians speak.\n\n"
+                "RULES\n"
+                "1. Devanagari script. Maximum 10 words.\n"
+                "2. No full stop at the end. A comma or a dash is fine.\n"
+                "3. Simple spoken Hindi. Keep common English words in Devanagari (पुलिस, ट्रेन, फेक, अरेस्ट, स्टार्टअप). Acronyms like AI, UPI, IPL, BJP stay in English letters.\n"
+                "4. Avoid heavy Hindi words like संवाददाता, अवगत, प्रचालन, विद्यालय.\n"
+                "5. Keep the main name or number from the original.\n"
+                "6. Do not invent drama or details that are not in the headline.\n"
+                "7. Output ONLY the Hindi headline. Nothing else.\n\n"
+                "EXAMPLES\n"
+                "English: Delhi Police arrest three for running fake job website, Rs 40 lakh duped\n"
+                "Hindi: फेक जॉब वेबसाइट से 40 लाख की ठगी, तीन अरेस्ट\n\n"
+                "English: Mumbai local train services delayed by two hours after technical fault\n"
+                "Hindi: टेक्निकल फॉल्ट से मुंबई लोकल दो घंटे लेट\n\n"
+                "English: Startup founder says AI will not replace junior developers\n"
+                "Hindi: स्टार्टअप फाउंडर बोले— जूनियर डेवलपर्स की जगह AI नहीं लेगा"
             )
+            user_prompt = f"Now translate this headline:\nEnglish: {text}\nHindi:"
         else:
-            prompt = (
-                f"<start_of_turn>user\n"
-                f"Translate the following Hindi text accurately into English. "
-                f"Output ONLY the translated English text and nothing else:\n\n{text}<end_of_turn>\n"
-                f"<start_of_turn>model\n"
-            )
+            sys_prompt = "You are a professional Hindi to English translator. Output ONLY the translated English text."
+            user_prompt = f"Translate the following Hindi text accurately into English:\n\n{text}"
 
-        res = self.model(
-            prompt,
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        res = self.model.create_chat_completion(
+            messages=messages,
             max_tokens=256,
             temperature=0.2,
-            top_p=0.9,
-            echo=False
+            top_p=0.9
         )
-        out_text = res["choices"][0]["text"].strip()
-        out_text = re.sub(r'^["\']|["\']$', '', out_text)
+        out_text = res["choices"][0]["message"]["content"].strip()
+        out_text = out_text.strip("'\"")
         return out_text
 
     def _gen_nllb(self, text, src, tgt, beams=None):
@@ -364,8 +357,8 @@ class Translator:
         """Translate English -> Hindi article body with Multi-Pattern Token Masking (times, money, names)."""
         masked_text, mask_map = extract_and_mask_all(text)
         sents = split_sentences(masked_text)
-        if self.is_gemma:
-            raw_hi = " ".join(self._gen_gemma(s, "en2hi") for s in sents)
+        if self.is_llm:
+            raw_hi = " ".join(self._gen_llm(s, "en2hi") for s in sents)
         else:
             raw_hi = " ".join(self._gen_nllb(s, "eng_Latn", "hin_Deva") for s in sents)
         return unmask_all(raw_hi, mask_map)
@@ -376,8 +369,8 @@ class Translator:
         if not text:
             return ""
         masked_text, mask_map = extract_and_mask_all(text)
-        if self.is_gemma:
-            raw_hi = self._gen_gemma(masked_text, "en2hi_headline")
+        if self.is_llm:
+            raw_hi = self._gen_llm(masked_text, "en2hi_headline")
         else:
             raw_hi = self._gen_nllb(masked_text, "eng_Latn", "hin_Deva")
         return unmask_all(raw_hi, mask_map)
@@ -385,7 +378,7 @@ class Translator:
     def hi2en(self, text):
         if not text:
             return ""
-        if self.is_gemma:
-            return self._gen_gemma(text, "hi2en")
+        if self.is_llm:
+            return self._gen_llm(text, "hi2en")
         else:
             return self._gen_nllb(text, "hin_Deva", "eng_Latn", beams=2)
