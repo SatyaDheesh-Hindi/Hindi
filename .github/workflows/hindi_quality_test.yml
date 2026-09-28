@@ -11,6 +11,14 @@ on:
         description: 'Article IDs (comma-separated). Empty = the standard 15-article panel'
         required: false
         default: ''
+      sample:
+        description: 'Instead of ids: N fresh articles from the last 7 days, spread across categories (held-out test)'
+        required: false
+        default: ''
+      shards:
+        description: 'Parallel runners'
+        required: false
+        default: '3'
       model_repo:
         description: 'HF repo of the GGUF model'
         required: false
@@ -32,13 +40,43 @@ env:
   HINDI_MODEL_FILE: ${{ github.event.inputs.model_file || 'gemma-4-12b-it-Q4_K_M.gguf' }}
 
 jobs:
-  write:
+  setup:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+      shards: ${{ steps.ids.outputs.shards }}
+      n: ${{ steps.ids.outputs.n }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - id: ids
+        shell: bash
+        env:
+          SATYA_DB_URL: ${{ secrets.SATYA_DB_URL }}
+          SATYA_DB_TOKEN: ${{ secrets.SATYA_DB_TOKEN }}
+          SAMPLE: ${{ github.event.inputs.sample }}
+          IDS: ${{ github.event.inputs.ids }}
+          N: ${{ github.event.inputs.shards || '3' }}
+        run: |
+          if [ -n "$SAMPLE" ]; then
+            pip install -q libsql
+            IDS=$(python quality/sample_ids.py "$SAMPLE" 7)
+          fi
+          echo "ids=$IDS" >> $GITHUB_OUTPUT
+          echo "n=$N" >> $GITHUB_OUTPUT
+          echo "shards=$(python3 -c "print(list(range($N)))")" >> $GITHUB_OUTPUT
+          echo "ids: ${IDS:-standard panel}" >> $GITHUB_STEP_SUMMARY
+
+  write:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2]
+        shard: ${{ fromJson(needs.setup.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
       - name: Free disk
@@ -64,7 +102,7 @@ jobs:
           SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
           SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python quality/run_quality.py --shard ${{ matrix.shard }}/3 --ids "${{ github.event.inputs.ids }}" --out qout/${{ matrix.shard }}.json
+        run: python quality/run_quality.py --shard ${{ matrix.shard }}/${{ needs.setup.outputs.n }} --ids "${{ needs.setup.outputs.ids }}" --out qout/${{ matrix.shard }}.json
       - uses: actions/upload-artifact@v4
         with:
           name: q-${{ matrix.shard }}
