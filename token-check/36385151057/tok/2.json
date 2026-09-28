@@ -1,0 +1,146 @@
+{
+ "label": "D google QAT q4_0",
+ "repo": "google/gemma-4-12B-it-qat-q4_0-gguf",
+ "file": "gemma-4-12b-it-qat-q4_0.gguf",
+ "patched": true,
+ "llama_cpp_python": "0.3.35",
+ "roundtrip": [
+  {
+   "text": "डिपार्टमेंट",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "मुख्यमंत्री",
+   "n_tokens": 1,
+   "whole_ok": false,
+   "pieces_ok": false,
+   "special_ok": false,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "प्रतिनिधियों",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "पदाधिकारियों",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "व्यापारियों",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कपूरथला",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "अमरिंदर",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "नौकरशाहों",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "एडमिनिस्ट्रेशन",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "इंफ्रास्ट्रक्चर",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कॉर्पोरेशन",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "सहकारी",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कर्नाटक के मुख्यमंत्री डी.के. शिवकुमार न",
+   "n_tokens": 35,
+   "whole_ok": false,
+   "pieces_ok": false,
+   "special_ok": false,
+   "whole": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और स",
+   "pieces": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और स"
+  }
+ ],
+ "copy": {
+  "output": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और सोसाइटी के ने से बात की।",
+  "exact": false,
+  "missing": [
+   "डिपार्टमेंट",
+   "मुख्यमंत्री",
+   "प्रतिनिधियों",
+   "पदाधिकारियों",
+   "व्यापारियों"
+  ],
+  "seconds": 18.7
+ },
+ "rewrite": {
+  "headline": "जज ने ट्रंप और DOJ के समझौते को किया रद्द, 1.8 बिलियन डॉलर के फंड को बताया अवैध",
+  "body": "सोमवार को US डिस्ट्रिक्ट जज कैथलीन विलियम्स ने डोनाल्ड ट्रंप और ऑफ जस्टिस (DOJ) के बीच हुए एक समझौते को रद्द कर दिया। उन्होंने इसे अवैध 'सेल्फ-डीलिंग' करार दिया। ट्रंप ने टैक्स रिटर्न लीक होने पर IRS पर 10 बिलियन डॉलर का केस किया था। इसके बाद DOJ ने टैक्सपेयर्स से 1.8 बिलियन डॉलर निकालकर एक एंटी-वेपनिज़ेशन फंड में देने पर<image|>सहमति जताई थी।",
+  "seconds": 219.8,
+  "has_department": false,
+  "gap_ऑफ_जस्टिस": true,
+  "script_ok": false
+ }
+}
