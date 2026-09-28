@@ -16,6 +16,8 @@ def main():
     secs = sum(r["seconds"] for r in res) / max(1, n)
     retries = sum(r["new"].get("attempts", 1) > 1 for r in res)
     name_miss = sum(bool(r["new"].get("missing_names")) for r in res)
+    edited = sum(r["new"].get("proofread") == "edited" for r in res)
+    rejected = sum(str(r["new"].get("proofread", "")).startswith("edit rejected") for r in res)
     cur = [r for r in res if r["current"]]
     cur_latin = (sum(r["current_signals"]["latin_count"] for r in cur) / len(cur)) if cur else None
     cur_heavy = sum(len(r["current_signals"]["heavy_words"]) for r in cur) if cur else None
@@ -28,6 +30,7 @@ def main():
             f"| heavy/Sanskritised words (total) | {heavy} | {'' if cur_heavy is None else cur_heavy} |\n"
             f"| needed a retry (numbers or names) | {retries} | – |\n"
             f"| names still misspelt after retry (articles) | {name_miss} | – |\n"
+            f"| proofread: edited / edit rejected by the checks | {edited} / {rejected} | – |\n"
             f"| avg seconds per article | {secs:.0f} | – |\n\n"
             f"Article IDs: `{','.join(str(r['id']) for r in res)}`\n\n")
     md = [head]
@@ -45,6 +48,10 @@ def main():
         md += [f"---\n### {r['id']} · {r['category']} · {r['seconds']}s",
                f"**EN:** {r['en_title']}\n\n> {r['en_body']}\n",
                f"**New:** **{r['new']['headline']}**\n\n> {r['new']['body']}\n"]
+        if r["new"].get("proofread"):
+            md += [f"_Proofread: {r['new']['proofread']}_\n"]
+        if r["new"].get("draft"):
+            md += [f"<details><summary>Draft before proofread</summary>\n\n**{r['new']['draft']['headline']}**\n\n> {r['new']['draft']['body']}\n\n</details>\n"]
         if r["new"].get("names"):
             md += ["<details><summary>Name spellings used</summary>\n\n" + "<br>".join(r["new"]["names"]) + "\n\n</details>\n"]
         if r["current"]:

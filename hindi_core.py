@@ -284,10 +284,11 @@ def quality_signals(en, hi):
 # ---------------------------------------------------------------------------
 # Hindi writer (LLM, GGUF via llama.cpp)
 # ---------------------------------------------------------------------------
-PROMPT_VERSION = "hi-v3.3"
+PROMPT_VERSION = "hi-v3.4"
 MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
 MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
 EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
+NAMES_PATH = os.path.join(HERE, "prompts", "names_hi.json")
 # Reference tokenizer: the vocab embedded in Gemma 4 GGUFs decodes many Devanagari tokens
 # ("मुख्यमंत्री", " डिपार्टमेंट" ...) to empty strings, so prompts are encoded and outputs
 # decoded with the Hugging Face tokenizer; llama.cpp only runs the model on token IDs.
@@ -432,6 +433,40 @@ def parse_names(text, en):
     return out[:25]
 
 
+def load_known_names(path=NAMES_PATH):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f).get("names", {})
+    except Exception as e:
+        logging.error(f"Failed to load {path}: {e}")
+        return {}
+
+
+def merge_known_names(names, known, en):
+    """Standard spellings from prompts/names_hi.json win over the model's list; known names
+    the model missed are added. Longest names first so 'Priyanka Gandhi Vadra' beats
+    'Priyanka Gandhi'."""
+    out = {e: h for e, h in names}
+    for e in sorted(known, key=len, reverse=True):
+        if re.search(r"(?<![A-Za-z])" + re.escape(e) + r"(?![A-Za-z])", en or ""):
+            if any(e != o and e in o for o in out if o in known):
+                continue      # a longer known name already covers it
+            out[e] = known[e]
+    return list(out.items())
+
+
+PROOF_PROMPT = """You are now the Hindi desk editor. Below are an English news story and a Hindi draft written from it.
+Correct the draft only where it is wrong:
+- a fact, number, date or name that differs from the English or is missing
+- a name that is misspelt, or that has turned into an ordinary Hindi word with a different meaning
+- grammar: gender and number agreement (वीं/वें, रहा/रही, किया/की), wrong postpositions
+- a sentence that reads like a word-for-word translation
+Keep everything else as it is: the same style, the same everyday words, about the same length. Add nothing that is not in the English.
+Reply in exactly this format and nothing else:
+HEADLINE: <Hindi headline>
+BODY: <Hindi news>"""
+
+
 def name_gate(names, hi):
     """Each glossary name's last Devanagari word (the surname / key word) must appear in the
     Hindi. Only short names (<= 4 words) are enforced; long organisation names may be
@@ -466,6 +501,7 @@ class Translator:
                            n_gpu_layers=int(os.environ.get("HINDI_GPU_LAYERS", "-1")), verbose=False)
         attach_hf_tokenizer(self)
         self.examples, self.short_examples = load_examples()
+        self.known_names = load_known_names()
         logging.info(f"Model loaded ({len(self.examples)} article examples, {len(self.short_examples)} short).")
 
     # -- chat plumbing: the style guide goes in the first user turn (works with any chat template)
@@ -513,7 +549,7 @@ class Translator:
         msgs.append({"role": "user", "content": "Before writing the next article, " + NAMES_PROMPT[0].lower()
                      + NAMES_PROMPT[1:] + "\n\n" + _article_msg(title, body)})
         raw = self._chat(msgs, 300, temperature=0.1)
-        return parse_names(raw, body)
+        return merge_known_names(parse_names(raw, body), getattr(self, "known_names", {}), body)
 
     def write_article(self, title, body):
         """-> {"headline", "body", "attempts", "missing_numbers", "names", "missing_names"}.
@@ -551,7 +587,41 @@ class Translator:
             nm_ok, missing_names = name_gate(names, out["body"])
         out.update({"attempts": attempts, "missing_numbers": [] if n_ok else missing,
                     "names": [f"{e} = {h}" for e, h in names], "missing_names": missing_names})
+
+        # Proofread pass: keep the edit only if it still passes every gate and keeps the length.
+        out["proofread"] = "skipped"
+        if os.environ.get("HINDI_PROOFREAD", "1") == "1" and out["body"].strip():
+            try:
+                # Only the curated spellings (prompts/names_hi.json) bind the editor; the model's own
+                # guesses (e.g. Doshi -> दोषी) are exactly what it should be free to correct.
+                known = getattr(self, "known_names", {})
+                binding = [(e, h) for e, h in names if known.get(e) == h]
+                ed = self.proofread(title, text, out, binding, budget, fix)
+                e_ok, _ = verify(text, ed["body"], is_gemma=True)
+                e_names_ok, _ = name_gate(binding, ed["body"])
+                ratio = len(ed["body"]) / max(1, len(out["body"]))
+                if not ed["body"].strip() or ed["body"] == out["body"]:
+                    out["proofread"] = "no change"
+                elif e_ok and e_names_ok and 0.8 <= ratio <= 1.25:
+                    out["draft"] = {"headline": out["headline"], "body": out["body"]}
+                    out["headline"] = ed["headline"] or out["headline"]
+                    out["body"] = ed["body"]
+                    out["missing_names"] = name_gate(binding, ed["body"])[1]
+                    out["proofread"] = "edited"
+                else:
+                    out["proofread"] = f"edit rejected (gates_ok={e_ok}, names_ok={e_names_ok}, length x{ratio:.2f})"
+            except Exception as e:
+                logging.warning(f"proofread failed: {e}")
+                out["proofread"] = f"error: {str(e)[:80]}"
         return out
+
+    def proofread(self, title, text, draft, names, budget, fix):
+        msgs = self._article_messages("", "")[:-1]      # same cached prefix as the rewrite
+        content = (PROOF_PROMPT + "\n\nENGLISH\n" + _article_msg(title, text, names)
+                   + f"\n\nHINDI DRAFT\nHEADLINE: {draft['headline']}\nBODY: {draft['body']}")
+        msgs.append({"role": "user", "content": content})
+        res = self._parse_article(self._chat(msgs, budget, temperature=0.2))
+        return {"headline": fix(res.get("headline")).rstrip("।. "), "body": fix(res.get("body"))}
 
     def en2hi(self, text):
         return self.write_article("", text)["body"]
