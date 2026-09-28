@@ -16,9 +16,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {label: "A unsloth Q4_K_M", build: prebuilt, patch: "0", repo: unsloth/gemma-4-12b-it-GGUF, file: gemma-4-12b-it-Q4_K_M.gguf}
-          - {label: "A unsloth Q4_K_M", build: prebuilt, patch: "1", repo: unsloth/gemma-4-12b-it-GGUF, file: gemma-4-12b-it-Q4_K_M.gguf}
-          - {label: "D google QAT q4_0", build: prebuilt, patch: "1", repo: google/gemma-4-12B-it-qat-q4_0-gguf, file: gemma-4-12b-it-qat-q4_0.gguf}
+          - {label: "A unsloth Q4_K_M", build: prebuilt, mode: "llama", repo: unsloth/gemma-4-12b-it-GGUF, file: gemma-4-12b-it-Q4_K_M.gguf}
+          - {label: "A unsloth Q4_K_M", build: prebuilt, mode: "hf", repo: unsloth/gemma-4-12b-it-GGUF, file: gemma-4-12b-it-Q4_K_M.gguf}
     steps:
       - uses: actions/checkout@v4
       - name: Free disk
@@ -29,10 +28,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-tokcheck-${{ matrix.file }}
+          key: hf-tokcheck-${{ matrix.file }}-${{ matrix.mode }}
       - name: Install (prebuilt)
         if: matrix.build == 'prebuilt'
-        run: pip install huggingface-hub "llama-cpp-python>=0.3.35" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --no-cache-dir
+        run: pip install huggingface-hub transformers jinja2 "llama-cpp-python>=0.3.35" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --no-cache-dir
       - name: Install (latest llama.cpp from source)
         if: matrix.build == 'source'
         run: |
@@ -43,7 +42,7 @@ jobs:
       - name: Check
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          PATCH_DETOK: ${{ matrix.patch }}
+          MODE: ${{ matrix.mode }}
         run: python quality/token_check.py --repo "${{ matrix.repo }}" --file "${{ matrix.file }}" --label "${{ matrix.label }}" --out tok/${{ strategy.job-index }}.json
       - uses: actions/upload-artifact@v4
         if: always()

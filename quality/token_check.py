@@ -46,6 +46,9 @@ def main():
         from huggingface_hub import hf_hub_download
         res["llama_cpp_python"] = llama_cpp.__version__
         ctx["path"] = hf_hub_download(repo_id=a.repo, filename=a.file, token=os.environ.get("HF_TOKEN") or None)
+        from transformers import AutoTokenizer
+        ctx["hf"] = AutoTokenizer.from_pretrained(os.environ.get("HINDI_TOKENIZER_REPO", "google/gemma-4-12b-it"),
+                                                  token=os.environ.get("HF_TOKEN") or None)
 
     def roundtrip():
         from llama_cpp import Llama
@@ -56,39 +59,49 @@ def main():
             whole = v.detokenize(toks).decode("utf-8", "replace")
             pieces = b"".join(v.detokenize([t]) for t in toks).decode("utf-8", "replace")
             spec = v.detokenize(toks, special=True).decode("utf-8", "replace")
+            if "hf" in ctx:
+                hf_ids = ctx["hf"].encode(w, add_special_tokens=False)
+                rt_hf = {"hf_ids_equal_llama_ids": hf_ids == list(toks),
+                         "hf_decode_llama_ids_ok": ctx["hf"].decode(list(toks)) == w,
+                         "hf_roundtrip_ok": ctx["hf"].decode(hf_ids) == w}
+            else:
+                rt_hf = {}
             rt.append({"text": w[:40], "n_tokens": len(toks), "whole_ok": whole == w, "pieces_ok": pieces == w,
-                       "special_ok": spec == w,
+                       "special_ok": spec == w, **rt_hf,
                        "whole": whole[:80] if whole != w else "", "pieces": pieces[:80] if pieces != w else ""})
         res["roundtrip"] = rt
 
     def load():
         from llama_cpp import Llama
         ctx["llm"] = Llama(model_path=ctx["path"], n_ctx=4096, n_threads=os.cpu_count(), verbose=False)
-        if os.environ.get("PATCH_DETOK") == "1":
-            import hindi_core as core
-            core.patch_detokenize(ctx["llm"])
+        import hindi_core as core
+        t = core.Translator.__new__(core.Translator)
+        t.model, t.model_name = ctx["llm"], a.file
+        t.examples, t.short_examples = core.load_examples()
+        if os.environ.get("MODE") == "hf":
+            core.attach_hf_tokenizer(t)
+        else:
+            t.hf_tok = None
+        ctx["t"] = t
 
     def copy():
         t0 = time.time()
-        out = ctx["llm"].create_chat_completion(messages=[{"role": "user", "content":
+        out = ctx["t"]._chat([{"role": "user", "content":
               "Copy this Hindi sentence exactly, character for character, and output nothing else:\n" + SENT}],
-              temperature=0.0, max_tokens=200)["choices"][0]["message"]["content"].strip()
+              200, temperature=0.0).strip()
         res["copy"] = {"output": out, "exact": out == SENT, "missing": [w for w in WORDS if w in SENT and w not in out],
                        "seconds": round(time.time() - t0, 1)}
 
     def rewrite():
         import hindi_core as core
-        t = core.Translator.__new__(core.Translator)
-        t.model, t.model_name = ctx["llm"], a.file
-        t.examples, t.short_examples = core.load_examples()
         t0 = time.time()
-        w = t.write_article(ART_T, ART_B)
+        w = ctx["t"].write_article(ART_T, ART_B)
         body = w["body"]
         res["rewrite"] = {"headline": w["headline"], "body": body, "seconds": round(time.time() - t0, 1),
                           "has_department": ("डिपार्टमेंट" in body) or ("विभाग" in body),
                           "gap_ऑफ_जस्टिस": ("और ऑफ जस्टिस" in body), "script_ok": core.script_gate(body)[0]}
 
-    res["patched"] = os.environ.get("PATCH_DETOK") == "1"
+    res["patched"] = os.environ.get("MODE") == "hf"
     step("setup", setup)
     if "path" in ctx:
         step("roundtrip", roundtrip)

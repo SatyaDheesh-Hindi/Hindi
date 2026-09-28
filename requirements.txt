@@ -1,4 +1,6 @@
 libsql
 huggingface-hub
+transformers>=4.57  # reference Gemma 4 tokenizer (no torch needed)
+jinja2
 llama-cpp-python>=0.3.35  # Gemma 4 support
 pytest

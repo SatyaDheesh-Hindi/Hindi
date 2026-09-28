@@ -288,6 +288,10 @@ PROMPT_VERSION = "hi-v3.1"
 MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
 MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
 EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
+# Reference tokenizer: the vocab embedded in Gemma 4 GGUFs decodes many Devanagari tokens
+# ("मुख्यमंत्री", " डिपार्टमेंट" ...) to empty strings, so prompts are encoded and outputs
+# decoded with the Hugging Face tokenizer; llama.cpp only runs the model on token IDs.
+TOKENIZER_REPO = os.environ.get("HINDI_TOKENIZER_REPO", "google/gemma-4-12b-it")
 
 STYLE = """You write Hindi news for a popular Indian news app. Your readers are ordinary people in Delhi, Lucknow, Patna, Jaipur and Mumbai who read Hindi news on their phones.
 
@@ -330,6 +334,18 @@ def patch_detokenize(llm):
     return llm
 
 
+def attach_hf_tokenizer(translator, repo=None):
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(repo or TOKENIZER_REPO,
+                                        token=os.environ.get("HF_TOKEN") or None)
+    stops = {i for i in ([tok.eos_token_id] if tok.eos_token_id is not None else [])}
+    for t in tok.all_special_tokens:
+        if any(k in t.lower() for k in ("end_of_turn", "eos", "turn|>", "<|end")):
+            stops.add(tok.convert_tokens_to_ids(t))
+    translator.hf_tok, translator.stop_ids = tok, stops
+    return translator
+
+
 def strip_control(text):
     return _CONTROL_RE.sub("", text or "")
 
@@ -365,17 +381,27 @@ class Translator:
         path = hf_hub_download(repo_id=self.model_repo, filename=self.model_file, token=token)
         self.model = Llama(model_path=path, n_ctx=n_ctx, n_threads=os.cpu_count(),
                            n_gpu_layers=int(os.environ.get("HINDI_GPU_LAYERS", "-1")), verbose=False)
-        patch_detokenize(self.model)
+        attach_hf_tokenizer(self)
         self.examples, self.short_examples = load_examples()
         logging.info(f"Model loaded ({len(self.examples)} article examples, {len(self.short_examples)} short).")
 
     # -- chat plumbing: the style guide goes in the first user turn (works with any chat template)
     def _chat(self, messages, max_tokens, temperature=0.3):
-        # Plain text on purpose: llama.cpp's JSON-grammar sampling dropped and corrupted
-        # multi-byte Devanagari tokens (hi-v3.0 quality run: "���पूरथला", missing words).
-        out = self.model.create_chat_completion(
-            messages=messages, temperature=temperature, top_p=0.9, max_tokens=max_tokens)
-        return strip_control(out["choices"][0]["message"]["content"])
+        if getattr(self, "hf_tok", None) is None:
+            out = self.model.create_chat_completion(
+                messages=messages, temperature=temperature, top_p=0.9, max_tokens=max_tokens)
+            return strip_control(out["choices"][0]["message"]["content"])
+        ids = self.hf_tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
+        if isinstance(ids, dict):
+            ids = ids["input_ids"]
+        out = []
+        for tok in self.model.generate(ids, temp=temperature, top_p=0.9, top_k=64, repeat_penalty=1.0, reset=True):
+            if tok in self.stop_ids:
+                break
+            out.append(tok)
+            if len(out) >= max_tokens:
+                break
+        return strip_control(self.hf_tok.decode(out, skip_special_tokens=True))
 
     @staticmethod
     def _parse_article(text):
