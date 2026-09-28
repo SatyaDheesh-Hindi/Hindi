@@ -1,0 +1,169 @@
+{
+ "label": "A unsloth Q4_K_M",
+ "repo": "unsloth/gemma-4-12b-it-GGUF",
+ "file": "gemma-4-12b-it-Q4_K_M.gguf",
+ "patched": true,
+ "llama_cpp_python": "0.3.35",
+ "roundtrip": [
+  {
+   "text": "डिपार्टमेंट",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "मुख्यमंत्री",
+   "n_tokens": 1,
+   "whole_ok": false,
+   "pieces_ok": false,
+   "special_ok": false,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "प्रतिनिधियों",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "पदाधिकारियों",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "व्यापारियों",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कपूरथला",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "अमरिंदर",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "नौकरशाहों",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "एडमिनिस्ट्रेशन",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "इंफ्रास्ट्रक्चर",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कॉर्पोरेशन",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "सहकारी",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कर्नाटक के मुख्यमंत्री डी.के. शिवकुमार न",
+   "n_tokens": 35,
+   "whole_ok": false,
+   "pieces_ok": false,
+   "special_ok": false,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और स",
+   "pieces": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और स"
+  }
+ ],
+ "errors": {
+  "copy": "TypeError: 'str' object cannot be interpreted as an integer\nTraceback (most recent call last):\n  File \"/home/runner/work/Hindi/Hindi/quality/token_check.py\", line 36, in step\n    fn()\n  File \"/home/runner/work/Hindi/Hindi/quality/token_check.py\", line 89, in copy\n    out = ctx[\"t\"]._chat([{\"role\": \"user\", \"content\":\n  File \"/home/runner/work/Hindi/Hindi/hindi_core.py\", line 398, in _chat\n    for tok in self.model.generate(ids, temp=temperature, top_p=0.9, top_k=64, repeat_penalty=1.0, reset=True):\n  File \"/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/site-packages/llama_cpp/llama.py\", line 977, in generate\n    self.eval(tokens)\n  File \"/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/site-packages/llama_cpp/llama.py\", line 677, in eval\n    self._batch.set_batch(\n  File \"/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/site-packages/llama_cpp/_internals.py\", line 511, in set_batch\n    self.batch.token[i] = batch[i]\nTypeError: 'str' object cannot be interpreted as an integer\n",
+  "rewrite": "TypeError: 'str' object cannot be interpreted as an integer\nTraceback (most recent call last):\n  File \"/home/runner/work/Hindi/Hindi/quality/token_check.py\", line 36, in step\n    fn()\n  File \"/home/runner/work/Hindi/Hindi/quality/token_check.py\", line 98, in rewrite\n    w = ctx[\"t\"].write_article(ART_T, ART_B)\n  File \"/home/runner/work/Hindi/Hindi/hindi_core.py\", line 434, in write_article\n    raw = self._chat(msgs, budget)\n  File \"/home/runner/work/Hindi/Hindi/hindi_core.py\", line 398, in _chat\n    for tok in self.model.generate(ids, temp=temperature, top_p=0.9, top_k=64, repeat_penalty=1.0, reset=True):\n  File \"/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/site-packages/llama_cpp/llama.py\", line 977, in generate\n    self.eval(tokens)\n  File \"/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/site-packages/llama_cpp/llama.py\", line 677, in eval\n    self._batch.set_batch(\n  File \"/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/site-packages/llama_cpp/_internals.py\", line 511, in set_batch\n    self.batch.token[i] = batch[i]\nTypeError: 'str' object cannot be interpreted as an integer\n"
+ }
+}
