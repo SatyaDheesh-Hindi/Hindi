@@ -1,0 +1,179 @@
+{
+ "label": "A unsloth Q4_K_M",
+ "repo": "unsloth/gemma-4-12b-it-GGUF",
+ "file": "gemma-4-12b-it-Q4_K_M.gguf",
+ "patched": true,
+ "llama_cpp_python": "0.3.35",
+ "roundtrip": [
+  {
+   "text": "डिपार्टमेंट",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "मुख्यमंत्री",
+   "n_tokens": 1,
+   "whole_ok": false,
+   "pieces_ok": false,
+   "special_ok": false,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "प्रतिनिधियों",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "पदाधिकारियों",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "व्यापारियों",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कपूरथला",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "अमरिंदर",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "नौकरशाहों",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "एडमिनिस्ट्रेशन",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "इंफ्रास्ट्रक्चर",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कॉर्पोरेशन",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "सहकारी",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "special_ok": true,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कर्नाटक के मुख्यमंत्री डी.के. शिवकुमार न",
+   "n_tokens": 35,
+   "whole_ok": false,
+   "pieces_ok": false,
+   "special_ok": false,
+   "hf_ids_equal_llama_ids": true,
+   "hf_decode_llama_ids_ok": true,
+   "hf_roundtrip_ok": true,
+   "whole": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और स",
+   "pieces": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और स"
+  }
+ ],
+ "copy": {
+  "output": "कर्नाटक के मुख्यमंत्री डी.के. शिवकुमार ने जन प्रतिनिधियों और नौकरशाहों से मुलाकात की, जबकि डिपार्टमेंट ऑफ जस्टिस और सोसाइटी के पदाधिकारियों ने व्यापारियों से बात की।",
+  "exact": true,
+  "missing": [],
+  "seconds": 18.5
+ },
+ "rewrite": {
+  "headline": "ट्रंप और DOJ के बीच 1.8 बिलियन डॉलर के समझौते को जज ने रद्द किया",
+  "body": "सोमवार को अमेरिकी डिस्ट्रिक्ट जज कैथलीन विलियम्स ने डोनाल्ड ट्रंप और डिपार्टमेंट ऑफ जस्टिस (DOJ) के बीच हुए एक समझौते को रद्द कर दिया। जज ने इसे गैरकानूनी और खुद के फायदे के लिए किया गया काम बताया। ट्रंप ने टैक्स रिटर्न लीक होने पर IRS पर 10 बिलियन डॉलर का केस किया था। इसके बाद DOJ ने टैक्सपेयर्स के 1.8 बिलियन डॉलर को एक एंटी-वेपनिज़ेशन फंड में डालने पर सहमति जताई थी।",
+  "seconds": 218.5,
+  "has_department": true,
+  "gap_ऑफ_जस्टिस": false,
+  "script_ok": true
+ }
+}
