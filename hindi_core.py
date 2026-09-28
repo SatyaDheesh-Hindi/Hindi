@@ -284,7 +284,7 @@ def quality_signals(en, hi):
 # ---------------------------------------------------------------------------
 # Hindi writer (LLM, GGUF via llama.cpp)
 # ---------------------------------------------------------------------------
-PROMPT_VERSION = "hi-v3.2"
+PROMPT_VERSION = "hi-v3.3"
 MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
 MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
 EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
@@ -419,7 +419,9 @@ def parse_names(text, en):
         e, h = [x.strip().strip('"\'') for x in line.split("=", 1)]
         if not e or not h or e.lower() in seen:
             continue
-        if e.lower() not in (en or "").lower():      # only names that are really in the article
+        if not e[0].isupper() or not re.search(r"(?<![A-Za-z])" + re.escape(e) + r"(?![A-Za-z])", en or ""):
+            continue                                 # only real names that appear in the article text
+        if re.search(r"[a-z]", h):                   # '72nd', 'News' — only ALL-CAPS acronyms may stay Latin
             continue
         if not re.search(r"[\u0900-\u097F]", h):     # acronym kept in English: nothing to enforce
             continue
@@ -505,9 +507,13 @@ class Translator:
         return msgs
 
     def extract_names(self, title, body):
-        raw = self._chat([{"role": "user", "content": NAMES_PROMPT + "\n\n" + _article_msg(title, body)}],
-                         400, temperature=0.1)
-        return parse_names(raw, f"{title}\n{body}")
+        # Same leading turns (STYLE + style examples) as the rewrite, so llama.cpp reuses the
+        # cached prefix; a different first message made every article re-read ~3k tokens (3x slower).
+        msgs = self._article_messages("", "")[:-1]
+        msgs.append({"role": "user", "content": "Before writing the next article, " + NAMES_PROMPT[0].lower()
+                     + NAMES_PROMPT[1:] + "\n\n" + _article_msg(title, body)})
+        raw = self._chat(msgs, 300, temperature=0.1)
+        return parse_names(raw, body)
 
     def write_article(self, title, body):
         """-> {"headline", "body", "attempts", "missing_numbers", "names", "missing_names"}.
@@ -524,8 +530,8 @@ class Translator:
         budget = min(1400, 300 + len(text))
         raw = self._chat(msgs, budget)
         res = self._parse_article(raw)
-        post = lambda r: {"headline": fix_initials(trim_wrapping_quotes(r.get("headline"))).rstrip("।. "),
-                          "body": fix_initials(trim_wrapping_quotes(r.get("body")))}
+        fix = lambda x: fix_initials(trim_wrapping_quotes(x))
+        post = lambda r: {"headline": fix(r.get("headline")).rstrip("।. "), "body": fix(r.get("body"))}
         out = post(res)
         attempts = 1
         n_ok, missing, _ = number_gate(text, out["body"])
