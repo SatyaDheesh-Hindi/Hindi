@@ -181,7 +181,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Commit and Push Compiled Entity library
-        if: ${{ matrix.shard == 0 }}
+        if: ${{ matrix.shard == 0 && !cancelled() }}
         run: |
           git config --global user.email "satya-bot@github.com"
           git config --global user.name "Satya Bot"

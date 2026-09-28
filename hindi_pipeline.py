@@ -17,6 +17,7 @@ import sqlite3
 import zlib
 import json
 import socket
+import subprocess
 
 import hindi_core as core
 
@@ -504,92 +505,184 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
 # ==============================================================================
 # --- ENTITIES (shard 0 only) ---
 # ==============================================================================
-def process_entities(translator):
-    logging.info("--- Entities (shard 0) ---")
+def _git_checkpoint_entity_lib(lib_dir):
+    try:
+        hi_file = os.path.join(lib_dir, "entities_hi.json")
+        if not os.path.exists(hi_file):
+            return
+        subprocess.run(["git", "add", "entities_hi.json"], cwd=lib_dir, check=True, capture_output=True)
+        res = subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=lib_dir)
+        if res.returncode != 0:
+            subprocess.run(["git", "config", "user.name", "Satya Bot"], cwd=lib_dir, check=True)
+            subprocess.run(["git", "config", "user.email", "satya-bot@github.com"], cwd=lib_dir, check=True)
+            subprocess.run(["git", "commit", "-m", f"Auto-checkpoint entities_hi.json [{time.strftime('%Y-%m-%d %H:%M')}]"], cwd=lib_dir, check=True, capture_output=True)
+            push_res = subprocess.run(["git", "push", "origin", "main"], cwd=lib_dir, capture_output=True, text=True)
+            if push_res.returncode == 0:
+                logging.info("Checkpoint: entities_hi.json committed and pushed to GitHub.")
+            else:
+                logging.warning(f"Git checkpoint push (will retry later): {push_res.stderr.strip()[:100]}")
+    except Exception as e:
+        logging.warning(f"Git checkpoint failed (non-fatal): {e}")
+
+def process_entities(translator, deadline=None):
+    logging.info("--- Entities (shard 0: incremental resumption) ---")
     glossary = core.load_glossary()
     lib = os.environ.get('SATYA_ENTITY_LIBRARY_DIR', '').strip() or os.path.join(_D, "satya-entity-library")
     eng_path = os.path.join(lib, "entities.json")
     hi_path = os.path.join(lib, "entities_hi.json")
     if not os.path.exists(eng_path):
         logging.error(f"entities.json not found at {eng_path}; skipping.")
-        return True
+        return True, False
     try:
         with open(eng_path, encoding='utf-8') as f:
             eng = json.load(f)
     except Exception as e:
         logging.critical(f"Load entities.json failed: {e}")
-        return False
+        return False, False
 
     hi = {}
     if os.path.exists(hi_path):
         try:
             with open(hi_path, encoding='utf-8') as f:
                 hi = json.load(f)
-        except Exception:
+            logging.info("Loaded existing entities_hi.json for incremental resumption.")
+        except Exception as ex:
+            logging.warning(f"Could not parse existing entities_hi.json: {ex}")
             hi = {}
 
-    def tr(text):
-        return translator.en2hi_short(text) if text else ""
+    def _save_hi():
+        try:
+            with open(hi_path, 'w', encoding='utf-8') as f:
+                json.dump(hi, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.error(f"Write entities_hi.json failed: {e}")
+
+    def tr_field(val, existing_val=None, field_name=""):
+        if not val or not str(val).strip():
+            return ""
+        # If valid non-empty Hindi translation already exists, REUSE IT directly without calling Gemma!
+        if existing_val and isinstance(existing_val, str) and existing_val.strip():
+            return existing_val.strip()
+        try:
+            res = translator.en2hi_short(str(val))
+            return res.strip() if res else str(val)
+        except Exception as ex:
+            logging.warning(f"Translation failed for {field_name}: {ex}")
+            return existing_val or str(val)
 
     hi['metadata'] = eng.get('metadata', {})
     hi['international'] = eng.get('international', {})
-    hi['india'] = hi.get('india', {})
+    if 'india' not in hi or not isinstance(hi['india'], dict):
+        hi['india'] = {}
+
+    # Translate central government fields (with caching)
+    cg = eng.get('india', {}).get('central_government', {})
+    hi_cg = hi['india'].setdefault('central_government', dict(cg))
+    hi_cg['prime_minister'] = cg.get('prime_minister', '')
+    hi_cg['prime_minister_hi'] = tr_field(cg.get('prime_minister', ''), hi_cg.get('prime_minister_hi'), 'central_government.prime_minister')
+    hi_cg['president'] = cg.get('president', '')
+    hi_cg['president_hi'] = tr_field(cg.get('president', ''), hi_cg.get('president_hi'), 'central_government.president')
+    hi_cg['ruling_party'] = cg.get('ruling_party', '')
+    hi_cg['ruling_party_hi'] = tr_field(cg.get('ruling_party', ''), hi_cg.get('ruling_party_hi'), 'central_government.ruling_party')
+    hi_cg['ruling_coalition'] = cg.get('ruling_coalition', '')
+    hi_cg['ruling_coalition_hi'] = tr_field(cg.get('ruling_coalition', ''), hi_cg.get('ruling_coalition_hi'), 'central_government.ruling_coalition')
+
+    for k in ('parties', 'states', 'institutions', 'corporations'):
+        if k in eng.get('india', {}):
+            hi['india'][k] = eng['india'][k]
+
     cats = ['cabinet_ministers', 'opposition_leaders', 'state_chief_ministers', 'generic_politicians']
+    processed_count = 0
+    saved_count = 0
+    reused_count = 0
+    has_more = False
 
     for cat in cats:
-        eng_list = eng['india'].get(cat, [])
-        hi_lookup = {i['name']: i for i in hi['india'].get(cat, [])}
+        eng_list = eng.get('india', {}).get(cat, [])
+        hi_lookup = {i['name']: i for i in hi['india'].get(cat, []) if isinstance(i, dict) and 'name' in i}
         updated = []
+
         for p in eng_list:
+            if deadline and time.time() >= deadline:
+                logging.info(f"Entities deadline reached. Processed {processed_count} politicians.")
+                has_more = True
+                break
+
             name = p['name']
-            tp = hi_lookup.get(name)
-            if tp:
-                # refresh volatile fields (role/party/state can change over time)
-                tp['role'] = p.get('role', ''); tp['role_hi'] = tr(p.get('role', ''))
-                tp['party'] = p.get('party', ''); tp['party_hi'] = tr(p.get('party', ''))
-                tp['state'] = p.get('state', ''); tp['state_hi'] = tr(p.get('state', ''))
-                tp['criminal_cases'] = p.get('criminal_cases', 0)
-                tp['criminal_cases_in_news'] = p.get('criminal_cases_in_news', 0)
-                for key in ('controversies', 'criminal_incidents'):
-                    src = p.get(key, [])
-                    dst = tp.setdefault(key, [])
-                    seen = {c.get('source_url') for c in dst}
-                    for c in src:
-                        u = c.get('source_url')
-                        if u and u not in seen:
-                            entry = dict(c)
-                            entry['incident_text'] = tr(c.get('incident_text', ''))
-                            dst.append(entry)
-                updated.append(tp)
+            tp = hi_lookup.get(name) or {}
+            is_new = not bool(tp.get('name_hi'))
+
+            # Check and reuse fields
+            name_hi = tr_field(name, tp.get('name_hi'), f"{name}.name")
+            role_hi = tr_field(p.get('role', ''), tp.get('role_hi') if p.get('role') == tp.get('role') else None, f"{name}.role")
+            party_hi = tr_field(p.get('party', ''), tp.get('party_hi') if p.get('party') == tp.get('party') else None, f"{name}.party")
+            state_hi = tr_field(p.get('state', ''), tp.get('state_hi') if p.get('state') == tp.get('state') else None, f"{name}.state")
+            const_hi = tr_field(p.get('constituency', ''), tp.get('constituency_hi') if p.get('constituency') == tp.get('constituency') else None, f"{name}.constituency")
+
+            # Controversies & incidents caching
+            controversies_dst = []
+            existing_c_map = {c.get('source_url'): c for c in tp.get('controversies', []) if c.get('source_url')}
+            for c in p.get('controversies', []):
+                e_entry = existing_c_map.get(c.get('source_url'))
+                ex_text = e_entry.get('incident_text') if e_entry else None
+                inc_text_hi = tr_field(c.get('incident_text', ''), ex_text, f"{name}.controversy")
+                controversies_dst.append(dict(c, incident_text=inc_text_hi))
+
+            incidents_dst = []
+            existing_i_map = {c.get('source_url'): c for c in tp.get('criminal_incidents', []) if c.get('source_url')}
+            for c in p.get('criminal_incidents', []):
+                e_entry = existing_i_map.get(c.get('source_url'))
+                ex_text = e_entry.get('incident_text') if e_entry else None
+                inc_text_hi = tr_field(c.get('incident_text', ''), ex_text, f"{name}.criminal_incident")
+                incidents_dst.append(dict(c, incident_text=inc_text_hi))
+
+            np = {
+                "name": name,
+                "name_hi": name_hi,
+                "aliases": p.get('aliases', []),
+                "role": p.get('role', ''),
+                "role_hi": role_hi,
+                "ministry": p.get('ministry', ''),
+                "party": p.get('party', ''),
+                "party_hi": party_hi,
+                "state": p.get('state', ''),
+                "state_hi": state_hi,
+                "constituency": p.get('constituency', ''),
+                "constituency_hi": const_hi,
+                "criminal_cases": p.get('criminal_cases', 0),
+                "criminal_cases_in_news": p.get('criminal_cases_in_news', 0),
+                "affidavit_url": p.get('affidavit_url', ''),
+                "wikipedia": p.get('wikipedia', ''),
+                "known_promises": p.get('known_promises', []),
+                "image_placeholder": p.get('image_placeholder', ''),
+                "controversies": controversies_dst,
+                "criminal_incidents": incidents_dst,
+            }
+
+            updated.append(np)
+            hi['india'][cat] = updated
+            processed_count += 1
+            if is_new:
+                saved_count += 1
+                logging.info(f"[{processed_count}] Translated new profile: {name} -> {name_hi}")
             else:
-                logging.info(f"New profile: {name}")
-                np = {
-                    "name": name, "name_hi": tr(name),
-                    "role": p.get('role', ''), "role_hi": tr(p.get('role', '')),
-                    "party": p.get('party', ''), "party_hi": tr(p.get('party', '')),
-                    "state": p.get('state', ''), "state_hi": tr(p.get('state', '')),
-                    "constituency": p.get('constituency', ''), "constituency_hi": tr(p.get('constituency', '')),
-                    "criminal_cases": p.get('criminal_cases', 0),
-                    "criminal_cases_in_news": p.get('criminal_cases_in_news', 0),
-                    "wikipedia": p.get('wikipedia', ''), "affidavit_url": p.get('affidavit_url', ''),
-                    "image_placeholder": p.get('image_placeholder', ''),
-                    "controversies": [dict(c, incident_text=tr(c.get('incident_text', ''))) for c in p.get('controversies', [])],
-                    "criminal_incidents": [dict(c, incident_text=tr(c.get('incident_text', ''))) for c in p.get('criminal_incidents', [])],
-                }
-                updated.append(np)
-        hi['india'][cat] = updated
+                reused_count += 1
 
-    for k in ('parties', 'states', 'institutions'):
-        hi['india'][k] = eng['india'].get(k, [])
+            # Save to disk after every single politician
+            _save_hi()
 
-    try:
-        with open(hi_path, 'w', encoding='utf-8') as f:
-            json.dump(hi, f, ensure_ascii=False, indent=2)
-        logging.info("entities_hi.json saved.")
-    except Exception as e:
-        logging.error(f"Write entities_hi.json failed: {e}")
-        return False
-    return True
+            # Push incremental git checkpoint every 5 politicians
+            if processed_count % 5 == 0:
+                _git_checkpoint_entity_lib(lib)
+
+        if has_more:
+            break
+
+    # Final save and git push
+    _save_hi()
+    _git_checkpoint_entity_lib(lib)
+    logging.info(f"Entities processing summary: {processed_count} total, {saved_count} newly translated, {reused_count} reused from cache.")
+    return True, has_more
 
 # ==============================================================================
 # --- MAIN ---
@@ -633,8 +726,7 @@ def main():
         elif args.step == "timelines":
             r, has_more = process_timelines(translator(), shard, num_shards, batch, deadline); ok = ok and r
         elif args.step == "entities":
-            ok = process_entities(translator())
-            has_more = False
+            ok, has_more = process_entities(translator(), deadline=deadline)
         elif args.step == "upsc":
             r, has_more = process_upsc(translator(), shard, num_shards, batch, deadline); ok = ok and r
 
@@ -642,8 +734,13 @@ def main():
     elif num_shards >= 20:
         if shard == 0:
             logging.info("=== Shard 0: Dedicated Entities & Politicians Worker ===")
-            ok = process_entities(translator())
-            has_more = False
+            ok, more_e = process_entities(translator(), deadline=deadline)
+            if not more_e and time.time() < (deadline - 300):
+                logging.info("Entities complete! Shard 0 now assisting with remaining news articles.")
+                r, has_more = process_articles(translator(), 0, 16, batch, deadline)
+                ok = ok and r
+            else:
+                has_more = more_e
         elif 1 <= shard <= 15:
             # 15 shards exclusively dedicated to News Articles & Headlines
             worker_shard = shard - 1
@@ -671,10 +768,12 @@ def main():
     else:
         logging.info(f"=== Shard {shard}/{num_shards}: General Worker ===")
         if shard == 0:
-            ok = process_entities(translator()) and ok
+            ok_e, more_e = process_entities(translator(), deadline=deadline)
+            ok = ok and ok_e
+            has_more = has_more or more_e
         r_a, more_a = process_articles(translator(), shard, num_shards, batch, deadline); ok = ok and r_a
         r_t, more_t = process_timelines(translator(), shard, num_shards, batch, deadline); ok = ok and r_t
-        has_more = more_a or more_t
+        has_more = has_more or more_a or more_t
 
     logging.info(f"--- Done in {time.time()-start:.1f}s ---")
     if not ok:
