@@ -74,14 +74,21 @@ def get_translation_db_connection():
 # --- FAILURE TRACKING ---
 # ==============================================================================
 def record_failure(cur_b, conn_b, conn_a, article_id, msg):
+    """Count a failure for the CURRENT prompt version. Attempts made under an older
+    version/model don't count. After MAX_FAILURE_ATTEMPTS the article is skipped by
+    this version; translated_hi goes to 2 only if it had no translation at all."""
+    v = core.PROMPT_VERSION
     for attempt in range(3):
         try:
             c_b = get_translation_db_connection()
             cur_b_local = c_b.cursor()
             cur_b_local.execute(
-                """INSERT INTO translation_failures (article_id, attempts, last_error) VALUES (?, 1, ?)
-                   ON CONFLICT(article_id) DO UPDATE SET attempts = attempts + 1, last_error = excluded.last_error""",
-                (article_id, str(msg)[:500]))
+                """INSERT INTO translation_failures (article_id, attempts, last_error, hi_version) VALUES (?, 1, ?, ?)
+                   ON CONFLICT(article_id) DO UPDATE SET
+                     attempts = CASE WHEN translation_failures.hi_version IS excluded.hi_version
+                                     THEN translation_failures.attempts + 1 ELSE 1 END,
+                     last_error = excluded.last_error, hi_version = excluded.hi_version""",
+                (article_id, str(msg)[:500], v))
             c_b.commit()
 
             cur_b_local.execute("SELECT attempts FROM translation_failures WHERE article_id = ?", (article_id,))
@@ -92,7 +99,7 @@ def record_failure(cur_b, conn_b, conn_a, article_id, msg):
                 try:
                     c_a = get_db_connection()
                     cur_a_local = c_a.cursor()
-                    cur_a_local.execute("UPDATE articles SET translated_hi = 2 WHERE id = ?", (article_id,))
+                    cur_a_local.execute("UPDATE articles SET translated_hi = 2 WHERE id = ? AND translated_hi = 0", (article_id,))
                     c_a.commit()
                     c_a.close()
                 except Exception:
@@ -105,101 +112,158 @@ def record_failure(cur_b, conn_b, conn_a, article_id, msg):
 # ==============================================================================
 # --- ARTICLES ---
 # ==============================================================================
-def process_articles(translator, shard, num_shards, batch_size):
-    logging.info(f"--- Articles & Headlines ({core.PROMPT_VERSION}) ---")
-    glossary = core.load_glossary()
+def _ensure_trans_schema():
+    conn_b = get_translation_db_connection()
+    cur_b = conn_b.cursor()
+    cur_b.execute("CREATE TABLE IF NOT EXISTS translations (article_id INTEGER PRIMARY KEY, rephrased_article_hi BLOB, rephrased_title_hi TEXT, headline_verified_hi INTEGER DEFAULT 0)")
+    cur_b.execute("CREATE TABLE IF NOT EXISTS translation_failures (article_id INTEGER PRIMARY KEY, attempts INTEGER DEFAULT 0, last_error TEXT)")
+    for tbl in ("translations", "translation_failures"):
+        cur_b.execute(f"PRAGMA table_info({tbl})")
+        if "hi_version" not in [r[1] for r in cur_b.fetchall()]:
+            try:
+                cur_b.execute(f"ALTER TABLE {tbl} ADD COLUMN hi_version TEXT")
+            except Exception as e:  # another shard added it first
+                if "duplicate" not in str(e).lower():
+                    raise
+    conn_b.commit()
+    conn_b.close()
 
+
+def _skip_ids():
+    """Articles this prompt version is finished with: translated by it, or given up on."""
+    v = core.PROMPT_VERSION
+    conn_b = get_translation_db_connection()
+    cur_b = conn_b.cursor()
+    cur_b.execute("SELECT article_id FROM translations WHERE hi_version = ?", (v,))
+    done = {r[0] for r in cur_b.fetchall()}
+    cur_b.execute("SELECT article_id FROM translation_failures WHERE hi_version = ? AND attempts >= ?", (v, MAX_FAILURE_ATTEMPTS))
+    done |= {r[0] for r in cur_b.fetchall()}
+    conn_b.close()
+    return done
+
+
+def _candidate_ids(shard, num_shards, skip):
+    """Newest first: every untranslated article from the last HINDI_WINDOW_DAYS days,
+    plus every article translated/failed under an older model (redo)."""
+    days = int(os.environ.get("HINDI_WINDOW_DAYS", 30))
+    cutoff = int(time.time()) - days * 86400
+    conn_a = get_db_connection()
+    cur_a = conn_a.cursor()
+    cur_a.execute(
+        "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? "
+        "AND ((translated_hi = 0 AND scraped_at >= ?) OR translated_hi IN (1, 2)) ORDER BY id DESC",
+        (num_shards, shard, cutoff))
+    ids = [r[0] for r in cur_a.fetchall() if r[0] not in skip]
+    conn_a.close()
+    return ids
+
+
+def _translate_one(translator, article_id, eng_headline, comp):
     try:
-        conn_a = get_db_connection()
-        cur_a = conn_a.cursor()
-        # Direct indexed query: reads ONLY active batch items (10 rows!)
-        cur_a.execute(
-            "SELECT id, rephrased_title, rephrased_article FROM articles "
-            "WHERE rephrased_article IS NOT NULL AND translated_hi = 0 AND (id % ?) = ? "
-            "ORDER BY id DESC LIMIT ?",
-            (num_shards, shard, batch_size))
-        chunk_rows = cur_a.fetchall()
-        conn_a.close()
+        eng_summary = zlib.decompress(comp).decode('utf-8')
+    except (zlib.error, TypeError, UnicodeDecodeError) as ze:
+        logging.error(f"Decompress failed ID {article_id}: {ze}")
+        record_failure(None, None, None, article_id, f"decompress: {ze}")
+        return False
+
+    # 1. Write headline + body together (one call, whole article, style examples)
+    out = translator.write_article(eng_headline, eng_summary)
+    hi_body, hi_title = out["body"], out["headline"]
+    if not hi_body.strip():
+        record_failure(None, None, None, article_id, "empty body")
+        return False
+
+    # 2. Gates: every number kept, Devanagari/Latin script only, no dropped-word gaps
+    ok_body, rb = core.verify(eng_summary, hi_body, is_gemma=True)
+    if not ok_body:
+        logging.warning(f"Body gate FAIL ID {article_id}: {rb}")
+        record_failure(None, None, None, article_id, f"body gate: {rb}")
+        return False
+    ok_title, _ = core.script_gate(hi_title)
+    if not hi_title or not ok_title:
+        hi_title = hi_body.split("।")[0].strip()[:90]
+
+    comp_hi = zlib.compress(hi_body.encode('utf-8'))
+    for attempt in range(3):
+        try:
+            c_b = get_translation_db_connection()
+            cur_b_local = c_b.cursor()
+            cur_b_local.execute(
+                "INSERT OR REPLACE INTO translations (article_id, rephrased_article_hi, rephrased_title_hi, headline_verified_hi, hi_version) VALUES (?, ?, ?, ?, ?)",
+                (article_id, comp_hi, hi_title, 1, core.PROMPT_VERSION))
+            cur_b_local.execute("DELETE FROM translation_failures WHERE article_id = ?", (article_id,))
+            c_b.commit()
+            c_b.close()
+
+            c_a = get_db_connection()
+            cur_a_local = c_a.cursor()
+            cur_a_local.execute("UPDATE articles SET translated_hi = 1 WHERE id = ?", (article_id,))
+            c_a.commit()
+            c_a.close()
+            logging.info(f"Saved ID {article_id}: '{hi_title}'")
+            return True
+        except Exception as ex_db:
+            logging.warning(f"Save translation DB error for {article_id} (attempt {attempt+1}/3): {ex_db}")
+            time.sleep(1)
+    return False
+
+
+def process_articles(translator, shard, num_shards, batch_size, deadline=None):
+    """Work through the queue until it is empty or the deadline passes.
+    Returns (ok, has_more)."""
+    logging.info(f"--- Articles & Headlines ({core.PROMPT_VERSION}) ---")
+    try:
+        _ensure_trans_schema()
+        ids = _candidate_ids(shard, num_shards, _skip_ids())
     except Exception as e:
-        logging.critical(f"Fetch candidate articles from DB A failed: {e}")
+        logging.critical(f"Build article queue failed: {e}")
         return False, False
 
-    if not chunk_rows:
-        logging.info("No articles to translate.")
+    max_n = int(os.environ.get("HINDI_MAX_ARTICLES", 0))
+    if max_n:
+        ids = ids[:max_n]
+    logging.info(f"Queue for shard {shard}/{num_shards}: {len(ids)} articles")
+    if not ids:
         return True, False
 
-    try:
-        conn_b = get_translation_db_connection()
-        cur_b = conn_b.cursor()
-        cur_b.execute("CREATE TABLE IF NOT EXISTS translations (article_id INTEGER PRIMARY KEY, rephrased_article_hi BLOB, rephrased_title_hi TEXT, headline_verified_hi INTEGER DEFAULT 0)")
-        cur_b.execute("CREATE TABLE IF NOT EXISTS translation_failures (article_id INTEGER PRIMARY KEY, attempts INTEGER DEFAULT 0, last_error TEXT)")
-        conn_b.commit()
-        conn_b.close()
-    except Exception as e:
-        logging.critical(f"Connect DB B failed: {e}")
-        return False, False
-
-    has_more = len(chunk_rows) >= batch_size
-
-    for idx, (article_id, eng_headline, comp) in enumerate(chunk_rows):
+    saved = failed = 0
+    t0 = time.time()
+    for i in range(0, len(ids), batch_size):
+        if deadline and time.time() >= deadline:
+            logging.info("Deadline reached — the rest continues in the next run.")
+            break
+        chunk = ids[i:i + batch_size]
         try:
-            logging.info(f"[{idx+1}/{len(chunk_rows)}] ID {article_id}: {str(eng_headline)[:50]}")
+            conn_a = get_db_connection()
+            cur_a = conn_a.cursor()
+            ph = ",".join("?" * len(chunk))
+            cur_a.execute(f"SELECT id, rephrased_title, rephrased_article FROM articles WHERE id IN ({ph}) ORDER BY id DESC", chunk)
+            rows = cur_a.fetchall()
+            conn_a.close()
+        except Exception as e:
+            logging.error(f"Fetch chunk failed: {e}")
+            time.sleep(5)
+            continue
+        for article_id, eng_headline, comp in rows:
+            if deadline and time.time() >= deadline:
+                break
+            logging.info(f"[{saved + failed + 1}/{len(ids)}] ID {article_id}: {str(eng_headline)[:50]}")
             try:
-                eng_summary = zlib.decompress(comp).decode('utf-8')
-            except (zlib.error, TypeError, UnicodeDecodeError) as ze:
-                logging.error(f"Decompress failed ID {article_id}: {ze}")
-                record_failure(None, None, None, article_id, f"decompress: {ze}")
-                continue
+                if _translate_one(translator, article_id, eng_headline, comp):
+                    saved += 1
+                else:
+                    failed += 1
+            except Exception as ex:
+                failed += 1
+                logging.error(f"Error ID {article_id}: {ex}")
+                record_failure(None, None, None, article_id, ex)
 
-            # 1. Write headline + body together (one call, whole article, style examples)
-            out = translator.write_article(eng_headline, eng_summary)
-            hi_body, hi_title = out["body"], out["headline"]
-            if not hi_body.strip():
-                record_failure(None, None, None, article_id, "empty body")
-                continue
-
-            # 2. Gates: every number kept, Devanagari/Latin script only
-            ok_body, rb = core.verify(eng_summary, hi_body, is_gemma=True)
-            if not ok_body:
-                logging.warning(f"Body gate FAIL ID {article_id}: {rb}")
-                record_failure(None, None, None, article_id, f"body gate: {rb}")
-                continue
-            ok_title, _ = core.script_gate(hi_title)
-            if not hi_title or not ok_title:
-                hi_title = hi_body.split("।")[0].strip()[:90]
-
-            comp_hi = zlib.compress(hi_body.encode('utf-8'))
-
-            # Save with automatic reconnection on Hrana timeout
-            for attempt in range(3):
-                try:
-                    c_b = get_translation_db_connection()
-                    cur_b_local = c_b.cursor()
-                    cur_b_local.execute(
-                        "INSERT OR REPLACE INTO translations (article_id, rephrased_article_hi, rephrased_title_hi, headline_verified_hi) VALUES (?, ?, ?, ?)",
-                        (article_id, comp_hi, hi_title, 1))
-                    cur_b_local.execute("DELETE FROM translation_failures WHERE article_id = ?", (article_id,))
-                    c_b.commit()
-                    c_b.close()
-
-                    c_a = get_db_connection()
-                    cur_a_local = c_a.cursor()
-                    cur_a_local.execute("UPDATE articles SET translated_hi = 1 WHERE id = ?", (article_id,))
-                    c_a.commit()
-                    c_a.close()
-                    break
-                except Exception as ex_db:
-                    logging.warning(f"Save translation DB error for {article_id} (attempt {attempt+1}/3): {ex_db}")
-                    time.sleep(1)
-
-            logging.info(f"Saved ID {article_id}: '{hi_title}'")
-        except Exception as ex:
-            logging.error(f"Error ID {article_id}: {ex}")
-            record_failure(None, None, None, article_id, ex)
-
-    conn_a.close()
-    conn_b.close()
-    return True, has_more
+    done = saved + failed
+    rate = (time.time() - t0) / done if done else 0
+    logging.info(f"Articles: saved={saved} failed={failed} remaining={len(ids) - done} avg={rate:.0f}s")
+    print(f"articles_saved={saved}")
+    print(f"articles_remaining={len(ids) - done}")
+    return True, done < len(ids)
 
 # ==============================================================================
 # --- TIMELINES ---
@@ -389,7 +453,11 @@ def main():
     ok = True
     more_a = more_t = False
     if args.step in ("articles", "all"):
-        r, more_a = process_articles(translator(), shard, num_shards, batch); ok = ok and r
+        deadline = start + int(os.environ.get("HINDI_RUN_MINUTES", 270)) * 60
+        if args.test_run:
+            deadline = start + 20 * 60
+            os.environ["HINDI_MAX_ARTICLES"] = "5"
+        r, more_a = process_articles(translator(), shard, num_shards, batch, deadline); ok = ok and r
     if args.step in ("timelines", "all"):
         r, more_t = process_timelines(translator(), shard, num_shards, batch); ok = ok and r
     if args.step in ("entities", "all") and shard == 0:
