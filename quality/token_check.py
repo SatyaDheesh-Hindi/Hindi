@@ -55,13 +55,18 @@ def main():
             toks = v.tokenize(w.encode("utf-8"), add_bos=False, special=False)
             whole = v.detokenize(toks).decode("utf-8", "replace")
             pieces = b"".join(v.detokenize([t]) for t in toks).decode("utf-8", "replace")
+            spec = v.detokenize(toks, special=True).decode("utf-8", "replace")
             rt.append({"text": w[:40], "n_tokens": len(toks), "whole_ok": whole == w, "pieces_ok": pieces == w,
+                       "special_ok": spec == w,
                        "whole": whole[:80] if whole != w else "", "pieces": pieces[:80] if pieces != w else ""})
         res["roundtrip"] = rt
 
     def load():
         from llama_cpp import Llama
         ctx["llm"] = Llama(model_path=ctx["path"], n_ctx=4096, n_threads=os.cpu_count(), verbose=False)
+        if os.environ.get("PATCH_DETOK") == "1":
+            import hindi_core as core
+            core.patch_detokenize(ctx["llm"])
 
     def copy():
         t0 = time.time()
@@ -83,6 +88,7 @@ def main():
                           "has_department": ("डिपार्टमेंट" in body) or ("विभाग" in body),
                           "gap_ऑफ_जस्टिस": ("और ऑफ जस्टिस" in body), "script_ok": core.script_gate(body)[0]}
 
+    res["patched"] = os.environ.get("PATCH_DETOK") == "1"
     step("setup", setup)
     if "path" in ctx:
         step("roundtrip", roundtrip)

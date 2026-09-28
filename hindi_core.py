@@ -317,6 +317,23 @@ ARTICLE_SCHEMA = {"type": "object", "properties": {"headline": {"type": "string"
 SHORT_SCHEMA = {"type": "object", "properties": {"hindi": {"type": "string"}}, "required": ["hindi"]}
 
 
+_CONTROL_RE = re.compile(r"<\|?(?:start_of_turn|end_of_turn|eos|bos|pad|turn|mask|unused\d*)[^>]*\|?>|<\/?s>")
+
+def patch_detokenize(llm):
+    """llama.cpp skips tokens typed as 'special' when decoding, and Gemma 4's vocab types many
+    long Devanagari tokens that way ("मुख्यमंत्री", " डिपार्टमेंट" ...): they silently vanished
+    from the Hindi (token check run 36384388629). Decode everything; strip real control tokens."""
+    orig = llm.detokenize
+    def detok(tokens, prev_tokens=None, special=False):
+        return orig(tokens, prev_tokens=prev_tokens, special=True)
+    llm.detokenize = detok
+    return llm
+
+
+def strip_control(text):
+    return _CONTROL_RE.sub("", text or "")
+
+
 def load_examples(path=EXAMPLES_PATH):
     try:
         with open(path, encoding="utf-8") as f:
@@ -348,6 +365,7 @@ class Translator:
         path = hf_hub_download(repo_id=self.model_repo, filename=self.model_file, token=token)
         self.model = Llama(model_path=path, n_ctx=n_ctx, n_threads=os.cpu_count(),
                            n_gpu_layers=int(os.environ.get("HINDI_GPU_LAYERS", "-1")), verbose=False)
+        patch_detokenize(self.model)
         self.examples, self.short_examples = load_examples()
         logging.info(f"Model loaded ({len(self.examples)} article examples, {len(self.short_examples)} short).")
 
@@ -357,7 +375,7 @@ class Translator:
         # multi-byte Devanagari tokens (hi-v3.0 quality run: "���पूरथला", missing words).
         out = self.model.create_chat_completion(
             messages=messages, temperature=temperature, top_p=0.9, max_tokens=max_tokens)
-        return out["choices"][0]["message"]["content"]
+        return strip_control(out["choices"][0]["message"]["content"])
 
     @staticmethod
     def _parse_article(text):

@@ -16,10 +16,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {label: "A current (prebuilt wheel, unsloth Q4_K_M)", build: prebuilt, repo: unsloth/gemma-4-12b-it-GGUF, file: gemma-4-12b-it-Q4_K_M.gguf}
-          - {label: "B latest llama.cpp from source, unsloth Q4_K_M", build: source, repo: unsloth/gemma-4-12b-it-GGUF, file: gemma-4-12b-it-Q4_K_M.gguf}
-          - {label: "C prebuilt wheel, ggml-org Q4_K_M", build: prebuilt, repo: ggml-org/gemma-4-12B-it-GGUF, file: gemma-4-12B-it-Q4_K_M.gguf}
-          - {label: "D prebuilt wheel, google QAT q4_0", build: prebuilt, repo: google/gemma-4-12B-it-qat-q4_0-gguf, file: gemma-4-12b-it-qat-q4_0.gguf}
+          - {label: "A unsloth Q4_K_M", build: prebuilt, patch: "0", repo: unsloth/gemma-4-12b-it-GGUF, file: gemma-4-12b-it-Q4_K_M.gguf}
+          - {label: "A unsloth Q4_K_M", build: prebuilt, patch: "1", repo: unsloth/gemma-4-12b-it-GGUF, file: gemma-4-12b-it-Q4_K_M.gguf}
+          - {label: "D google QAT q4_0", build: prebuilt, patch: "1", repo: google/gemma-4-12B-it-qat-q4_0-gguf, file: gemma-4-12b-it-qat-q4_0.gguf}
     steps:
       - uses: actions/checkout@v4
       - name: Free disk
@@ -44,6 +43,7 @@ jobs:
       - name: Check
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          PATCH_DETOK: ${{ matrix.patch }}
         run: python quality/token_check.py --repo "${{ matrix.repo }}" --file "${{ matrix.file }}" --label "${{ matrix.label }}" --out tok/${{ strategy.job-index }}.json
       - uses: actions/upload-artifact@v4
         if: always()
