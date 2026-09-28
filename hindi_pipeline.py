@@ -344,47 +344,60 @@ def process_timelines(translator, shard, num_shards, batch_size, deadline=None):
             except Exception as ex:
                 logging.error(f"Fetch milestones for event {ev_id} failed: {ex}")
 
-            # 3. Save translations to DB B
-            try:
-                conn_b = get_translation_db_connection()
-                cur_b = conn_b.cursor()
-                if hi_title:
-                    cur_b.execute(
-                        "INSERT OR REPLACE INTO event_translations (event_id, title_hi) VALUES (?, ?)",
-                        (ev_id, hi_title)
-                    )
-                    saved_events += 1
+            # 3. Translate milestones in memory first (NEVER hold DB connections during LLM calls)
+            translated_milestones = []
+            for art_id, desc in milestones:
+                if not desc:
+                    continue
+                try:
+                    m_hi = translator.en2hi_short(desc)
+                    ok_m, _ = core.verify(desc, m_hi)
+                    if ok_m:
+                        translated_milestones.append((art_id, m_hi))
+                except Exception as ex_m:
+                    logging.error(f"Milestone {ev_id}/{art_id} translation failed: {ex_m}")
 
-                for art_id, desc in milestones:
-                    if not desc:
-                        continue
-                    try:
-                        m_hi = translator.en2hi_short(desc)
-                        ok_m, _ = core.verify(desc, m_hi)
-                        if ok_m:
-                            cur_b.execute(
-                                "INSERT OR REPLACE INTO event_milestone_translations (event_id, article_id, milestone_hi) VALUES (?, ?, ?)",
-                                (ev_id, art_id, m_hi)
-                            )
-                            saved_milestones += 1
-                    except Exception as ex_m:
-                        logging.error(f"Milestone {ev_id}/{art_id} translation failed: {ex_m}")
+            # 4. Save event title + milestones to DB B in one quick batch
+            db_b_ok = False
+            for attempt in range(3):
+                try:
+                    conn_b = get_translation_db_connection()
+                    cur_b = conn_b.cursor()
+                    if hi_title:
+                        cur_b.execute(
+                            "INSERT OR REPLACE INTO event_translations (event_id, title_hi) VALUES (?, ?)",
+                            (ev_id, hi_title)
+                        )
+                        saved_events += 1
 
-                conn_b.commit()
-                conn_b.close()
-            except Exception as ex_b:
-                logging.error(f"Save DB B for event {ev_id} failed: {ex_b}")
+                    for art_id, m_hi in translated_milestones:
+                        cur_b.execute(
+                            "INSERT OR REPLACE INTO event_milestone_translations (event_id, article_id, milestone_hi) VALUES (?, ?, ?)",
+                            (ev_id, art_id, m_hi)
+                        )
+                        saved_milestones += 1
 
-            # 4. Mark event as translated in DB A
-            try:
-                conn_a = get_db_connection()
-                cur_a = conn_a.cursor()
-                cur_a.execute("UPDATE events SET translated_hi = 1 WHERE id = ?", (ev_id,))
-                conn_a.commit()
-                conn_a.close()
-                logging.info(f"Saved event {ev_id}: '{hi_title}' ({len(milestones)} milestones)")
-            except Exception as ex_a:
-                logging.error(f"Mark event {ev_id} translated in DB A failed: {ex_a}")
+                    conn_b.commit()
+                    conn_b.close()
+                    db_b_ok = True
+                    break
+                except Exception as ex_b:
+                    logging.warning(f"Save DB B for event {ev_id} failed (attempt {attempt+1}/3): {ex_b}")
+                    time.sleep(1)
+
+            # 5. Mark event as translated in DB A ONLY if DB B save succeeded
+            if db_b_ok:
+                try:
+                    conn_a = get_db_connection()
+                    cur_a = conn_a.cursor()
+                    cur_a.execute("UPDATE events SET translated_hi = 1 WHERE id = ?", (ev_id,))
+                    conn_a.commit()
+                    conn_a.close()
+                    logging.info(f"Saved event {ev_id}: '{hi_title}' ({len(translated_milestones)}/{len(milestones)} milestones)")
+                except Exception as ex_a:
+                    logging.error(f"Mark event {ev_id} translated in DB A failed: {ex_a}")
+            else:
+                logging.error(f"Skipping DB A mark for event {ev_id} because DB B save failed.")
 
     elapsed = time.time() - t0
     logging.info(f"Timelines done: saved_events={saved_events}, saved_milestones={saved_milestones} in {elapsed:.1f}s")
