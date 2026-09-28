@@ -338,10 +338,12 @@ def attach_hf_tokenizer(translator, repo=None):
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(repo or TOKENIZER_REPO,
                                         token=os.environ.get("HF_TOKEN") or None)
-    stops = {i for i in ([tok.eos_token_id] if tok.eos_token_id is not None else [])}
+    stops = {int(i) for i in ([tok.eos_token_id] if isinstance(tok.eos_token_id, int) else (tok.eos_token_id or []))}
     for t in tok.all_special_tokens:
         if any(k in t.lower() for k in ("end_of_turn", "eos", "turn|>", "<|end")):
-            stops.add(tok.convert_tokens_to_ids(t))
+            i = tok.convert_tokens_to_ids(t)
+            if isinstance(i, int):
+                stops.add(i)
     translator.hf_tok, translator.stop_ids = tok, stops
     return translator
 
@@ -391,12 +393,11 @@ class Translator:
             out = self.model.create_chat_completion(
                 messages=messages, temperature=temperature, top_p=0.9, max_tokens=max_tokens)
             return strip_control(out["choices"][0]["message"]["content"])
-        ids = self.hf_tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
-        if isinstance(ids, dict):
-            ids = ids["input_ids"]
+        prompt = self.hf_tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+        ids = [int(i) for i in self.hf_tok.encode(prompt, add_special_tokens=False)]
         out = []
         for tok in self.model.generate(ids, temp=temperature, top_p=0.9, top_k=64, repeat_penalty=1.0, reset=True):
-            if tok in self.stop_ids:
+            if int(tok) in self.stop_ids:
                 break
             out.append(tok)
             if len(out) >= max_tokens:
