@@ -14,7 +14,7 @@ on:
       shards:
         description: 'Parallel runners (each takes id % N)'
         required: false
-        default: '12'
+        default: '20'
       loop_count:
         description: 'Internal: self-trigger loop depth (do not set manually)'
         required: false
@@ -36,7 +36,7 @@ jobs:
     steps:
       - id: set-shards
         run: |
-          N="${{ github.event.inputs.shards || '12' }}"
+          N="${{ github.event.inputs.shards || '20' }}"
           if [ "${{ github.event.inputs.test_run }}" = "true" ]; then N=1; fi
           echo "n=$N" >> $GITHUB_OUTPUT
           echo "shards=$(python3 -c "print(list(range($N)))")" >> $GITHUB_OUTPUT
@@ -44,7 +44,7 @@ jobs:
   translate:
     needs: setup
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 135
     strategy:
       fail-fast: false
       max-parallel: 20
@@ -143,6 +143,8 @@ jobs:
           SATYA_DB_TOKEN: ${{ secrets.SATYA_DB_TOKEN }}
           SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
           SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
+          SATYA_UPSC_DB_URL: ${{ secrets.SATYA_UPSC_DB_URL }}
+          SATYA_UPSC_DB_TOKEN: ${{ secrets.SATYA_UPSC_DB_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGINGFACE_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -151,7 +153,7 @@ jobs:
           SHARD_ID: ${{ matrix.shard }}
           NUM_SHARDS: ${{ needs.setup.outputs.n }}
           HINDI_WINDOW_DAYS: ${{ vars.HINDI_WINDOW_DAYS || '30' }}
-          HINDI_RUN_MINUTES: ${{ vars.HINDI_RUN_MINUTES || '270' }}
+          HINDI_RUN_MINUTES: ${{ vars.HINDI_RUN_MINUTES || '110' }}
           SATYA_ENTITY_LIBRARY_DIR: ./temp_entity_lib
         run: |
           ARGS=""

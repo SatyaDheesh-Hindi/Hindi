@@ -272,70 +272,221 @@ def process_articles(translator, shard, num_shards, batch_size, deadline=None):
 # ==============================================================================
 # --- TIMELINES ---
 # ==============================================================================
-def process_timelines(translator, shard, num_shards, batch_size):
-    logging.info("--- Timelines & Milestones ---")
+def process_timelines(translator, shard, num_shards, batch_size, deadline=None):
+    logging.info(f"--- Timelines & Milestones (worker {shard}/{num_shards}) ---")
     glossary = core.load_glossary()
-    try:
-        conn_a = get_db_connection()
-        cur_a = conn_a.cursor()
-        cur_a.execute("SELECT id, title FROM events WHERE translated_hi = 0 AND (id % ?) = ? ORDER BY id DESC LIMIT ?", (num_shards, shard, batch_size))
-        events = cur_a.fetchall()
-        cur_a.execute(
-            "SELECT ea.event_id, ea.article_id, ea.milestone FROM event_articles ea "
-            "JOIN events e ON ea.event_id = e.id WHERE e.translated_hi = 0 AND (ea.event_id % ?) = ? LIMIT ?",
-            (num_shards, shard, batch_size))
-        milestones = cur_a.fetchall()
-    except Exception as e:
-        logging.critical(f"Query timelines failed: {e}")
-        try: conn_a.close()
-        except Exception: pass
-        return False, False
-
-    if not events and not milestones:
-        conn_a.close()
-        return True, False
 
     try:
         conn_b = get_translation_db_connection()
         cur_b = conn_b.cursor()
         cur_b.execute("CREATE TABLE IF NOT EXISTS event_translations (event_id INTEGER PRIMARY KEY, title_hi TEXT)")
         cur_b.execute("CREATE TABLE IF NOT EXISTS event_milestone_translations (event_id INTEGER, article_id INTEGER, milestone_hi TEXT, PRIMARY KEY (event_id, article_id))")
+        conn_b.commit()
+        conn_b.close()
     except Exception as e:
-        logging.critical(f"Query DB B timelines failed: {e}")
-        conn_a.close()
+        logging.critical(f"Init DB B timelines tables failed: {e}")
         return False, False
 
-    has_more = len(events) >= batch_size or len(milestones) >= batch_size
+    saved_events = 0
+    saved_milestones = 0
+    t0 = time.time()
 
-    for ev_id, title in events:
+    while True:
+        if deadline and time.time() >= deadline:
+            logging.info("Timelines deadline reached — the rest continues in next run.")
+            return True, True
+
         try:
-            hi = translator.en2hi_short(title)
-            ok, _ = core.verify(title or "", hi)
-            if not ok:
-                continue
-            cur_b.execute("INSERT OR REPLACE INTO event_translations (event_id, title_hi) VALUES (?, ?)", (ev_id, hi))
-            conn_b.commit()
+            conn_a = get_db_connection()
+            cur_a = conn_a.cursor()
+            cur_a.execute(
+                "SELECT id, title FROM events WHERE translated_hi = 0 AND (id % ?) = ? ORDER BY id DESC LIMIT ?",
+                (num_shards, shard, batch_size)
+            )
+            events = cur_a.fetchall()
+            conn_a.close()
+        except Exception as e:
+            logging.error(f"Query timelines batch failed: {e}")
+            time.sleep(5)
+            continue
+
+        if not events:
+            logging.info(f"All events completed for timeline worker {shard}/{num_shards}.")
+            break
+
+        for ev_id, title in events:
+            if deadline and time.time() >= deadline:
+                logging.info("Timelines deadline reached inside batch.")
+                return True, True
+
+            # 1. Translate event title
+            hi_title = None
+            if title:
+                try:
+                    cand = translator.en2hi_short(title)
+                    ok, _ = core.verify(title, cand)
+                    if ok:
+                        hi_title = cand
+                except Exception as ex:
+                    logging.error(f"Event {ev_id} title translation failed: {ex}")
+
+            # 2. Fetch milestones for this event
+            milestones = []
             try:
+                conn_a = get_db_connection()
+                cur_a = conn_a.cursor()
+                cur_a.execute(
+                    "SELECT article_id, milestone FROM event_articles WHERE event_id = ? AND milestone IS NOT NULL",
+                    (ev_id,)
+                )
+                milestones = cur_a.fetchall()
+                conn_a.close()
+            except Exception as ex:
+                logging.error(f"Fetch milestones for event {ev_id} failed: {ex}")
+
+            # 3. Save translations to DB B
+            try:
+                conn_b = get_translation_db_connection()
+                cur_b = conn_b.cursor()
+                if hi_title:
+                    cur_b.execute(
+                        "INSERT OR REPLACE INTO event_translations (event_id, title_hi) VALUES (?, ?)",
+                        (ev_id, hi_title)
+                    )
+                    saved_events += 1
+
+                for art_id, desc in milestones:
+                    if not desc:
+                        continue
+                    try:
+                        m_hi = translator.en2hi_short(desc)
+                        ok_m, _ = core.verify(desc, m_hi)
+                        if ok_m:
+                            cur_b.execute(
+                                "INSERT OR REPLACE INTO event_milestone_translations (event_id, article_id, milestone_hi) VALUES (?, ?, ?)",
+                                (ev_id, art_id, m_hi)
+                            )
+                            saved_milestones += 1
+                    except Exception as ex_m:
+                        logging.error(f"Milestone {ev_id}/{art_id} translation failed: {ex_m}")
+
+                conn_b.commit()
+                conn_b.close()
+            except Exception as ex_b:
+                logging.error(f"Save DB B for event {ev_id} failed: {ex_b}")
+
+            # 4. Mark event as translated in DB A
+            try:
+                conn_a = get_db_connection()
+                cur_a = conn_a.cursor()
                 cur_a.execute("UPDATE events SET translated_hi = 1 WHERE id = ?", (ev_id,))
                 conn_a.commit()
-            except Exception: pass
-        except Exception as ex:
-            logging.error(f"Event {ev_id} failed: {ex}")
+                conn_a.close()
+                logging.info(f"Saved event {ev_id}: '{hi_title}' ({len(milestones)} milestones)")
+            except Exception as ex_a:
+                logging.error(f"Mark event {ev_id} translated in DB A failed: {ex_a}")
 
-    for ev_id, art_id, desc in milestones:
+    elapsed = time.time() - t0
+    logging.info(f"Timelines done: saved_events={saved_events}, saved_milestones={saved_milestones} in {elapsed:.1f}s")
+    return True, False
+
+
+# ==============================================================================
+# --- UPSC CONTENT (optional, covered by timeline shards 16-19) ---
+# ==============================================================================
+def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
+    upsc_url = os.environ.get('SATYA_UPSC_DB_URL')
+    upsc_token = os.environ.get('SATYA_UPSC_DB_TOKEN')
+    if not upsc_url or not upsc_token:
+        logging.info("UPSC credentials not configured; skipping UPSC translation.")
+        return True, False
+
+    logging.info(f"--- UPSC Content (worker {shard}/{num_shards}) ---")
+    try:
+        conn_b = get_translation_db_connection()
+        cur_b = conn_b.cursor()
+        cur_b.execute("""
+            CREATE TABLE IF NOT EXISTS upsc_translations (
+                article_id INTEGER PRIMARY KEY,
+                why_in_news_hi TEXT,
+                fact_box_hi TEXT,
+                prelims_pointers_hi TEXT,
+                mains_question_hi TEXT,
+                translated_at INTEGER
+            )
+        """)
+        cur_b.execute("SELECT article_id FROM upsc_translations")
+        done_ids = {r[0] for r in cur_b.fetchall()}
+        conn_b.close()
+    except Exception as e:
+        logging.error(f"Check upsc_translations table failed: {e}")
+        return False, False
+
+    saved = 0
+    while True:
+        if deadline and time.time() >= deadline:
+            logging.info("UPSC deadline reached — continuing in next run.")
+            return True, True
+
         try:
-            hi = translator.en2hi_short(desc)
-            ok, _ = core.verify(desc or "", hi)
-            if not ok:
-                continue
-            cur_b.execute("INSERT OR REPLACE INTO event_milestone_translations (event_id, article_id, milestone_hi) VALUES (?, ?, ?)", (ev_id, art_id, hi))
-            conn_b.commit()
-        except Exception as ex:
-            logging.error(f"Milestone {ev_id}/{art_id} failed: {ex}")
+            conn_u = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+            cur_u = conn_u.cursor()
+            cur_u.execute(
+                "SELECT article_id, why_in_news, fact_box, prelims_pointers, mains_question "
+                "FROM upsc_articles WHERE (article_id % ?) = ? ORDER BY published_at DESC LIMIT ?",
+                (num_shards, shard, batch_size)
+            )
+            rows = cur_u.fetchall()
+            conn_u.close()
+        except Exception as e:
+            logging.error(f"Fetch UPSC batch failed: {e}")
+            time.sleep(5)
+            continue
 
-    conn_a.close()
-    conn_b.close()
-    return True, has_more
+        untranslated = [r for r in rows if r[0] not in done_ids]
+        if not rows or not untranslated:
+            logging.info(f"All UPSC articles completed for worker {shard}/{num_shards}.")
+            break
+
+        for art_id, why_news, fact_box, prelims_json, mains_q in untranslated:
+            if deadline and time.time() >= deadline:
+                return True, True
+
+            try:
+                why_hi = translator.en2hi_short(why_news) if why_news else ""
+                fact_hi = translator.en2hi_short(fact_box) if fact_box else ""
+                mains_hi = translator.en2hi_short(mains_q) if mains_q else ""
+
+                pointers_hi = []
+                if prelims_json:
+                    try:
+                        p_list = json.loads(prelims_json) if isinstance(prelims_json, str) else prelims_json
+                        if isinstance(p_list, list):
+                            for p in p_list:
+                                if isinstance(p, dict) and p.get("text"):
+                                    pointers_hi.append({"type": p.get("type", "fact"), "text": translator.en2hi_short(p["text"])})
+                                elif isinstance(p, str):
+                                    pointers_hi.append({"type": "fact", "text": translator.en2hi_short(p)})
+                    except Exception:
+                        pointers_hi = []
+
+                conn_b = get_translation_db_connection()
+                cur_b = conn_b.cursor()
+                cur_b.execute(
+                    "INSERT OR REPLACE INTO upsc_translations (article_id, why_in_news_hi, fact_box_hi, prelims_pointers_hi, mains_question_hi, translated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (art_id, why_hi, fact_hi, json.dumps(pointers_hi, ensure_ascii=False), mains_hi, int(time.time()))
+                )
+                conn_b.commit()
+                conn_b.close()
+                done_ids.add(art_id)
+                saved += 1
+                logging.info(f"Saved UPSC note for article ID {art_id}")
+            except Exception as ex:
+                logging.error(f"Translate UPSC note ID {art_id} failed: {ex}")
+
+    logging.info(f"UPSC done: saved {saved} notes.")
+    return True, False
+
 
 # ==============================================================================
 # --- ENTITIES (shard 0 only) ---
@@ -431,11 +582,11 @@ def process_entities(translator):
 # --- MAIN ---
 # ==============================================================================
 def main():
-    ap = argparse.ArgumentParser(description="Satya Hindi Translation Pipeline (NLLB)")
+    ap = argparse.ArgumentParser(description="Satya Hindi Translation Pipeline")
     ap.add_argument("--test-run", action="store_true")
     ap.add_argument("--shard", type=int, default=None)
     ap.add_argument("--num-shards", type=int, default=None)
-    ap.add_argument("--step", default="all", choices=["articles", "timelines", "entities", "all"])
+    ap.add_argument("--step", default="all", choices=["articles", "timelines", "entities", "upsc", "all"])
     args = ap.parse_args()
 
     start = time.time()
@@ -454,23 +605,69 @@ def main():
             _t = core.Translator()
         return _t
 
+    deadline = start + int(os.environ.get("HINDI_RUN_MINUTES", 110)) * 60
+    if args.test_run:
+        deadline = start + 20 * 60
+        os.environ["HINDI_MAX_ARTICLES"] = "5"
+
     ok = True
-    more_a = more_t = False
-    if args.step in ("articles", "all"):
-        deadline = start + int(os.environ.get("HINDI_RUN_MINUTES", 270)) * 60
-        if args.test_run:
-            deadline = start + 20 * 60
-            os.environ["HINDI_MAX_ARTICLES"] = "5"
-        r, more_a = process_articles(translator(), shard, num_shards, batch, deadline); ok = ok and r
-    if args.step in ("timelines", "all"):
-        r, more_t = process_timelines(translator(), shard, num_shards, batch); ok = ok and r
-    if args.step in ("entities", "all") and shard == 0:
-        ok = process_entities(translator()) and ok
+    has_more = False
+
+    # 1. Explicit CLI step override
+    if args.step != "all":
+        if args.step == "articles":
+            r, has_more = process_articles(translator(), shard, num_shards, batch, deadline); ok = ok and r
+        elif args.step == "timelines":
+            r, has_more = process_timelines(translator(), shard, num_shards, batch, deadline); ok = ok and r
+        elif args.step == "entities":
+            ok = process_entities(translator())
+            has_more = False
+        elif args.step == "upsc":
+            r, has_more = process_upsc(translator(), shard, num_shards, batch, deadline); ok = ok and r
+
+    # 2. Production 20-shard architecture
+    elif num_shards >= 20:
+        if shard == 0:
+            logging.info("=== Shard 0: Dedicated Entities & Politicians Worker ===")
+            ok = process_entities(translator())
+            has_more = False
+        elif 1 <= shard <= 15:
+            # 15 shards exclusively dedicated to News Articles & Headlines
+            worker_shard = shard - 1
+            worker_num = 15
+            logging.info(f"=== Shard {shard}: Dedicated Articles Worker ({worker_shard}/{worker_num}) ===")
+            r, has_more = process_articles(translator(), worker_shard, worker_num, batch, deadline)
+            ok = ok and r
+        elif 16 <= shard <= 19:
+            # 4 shards exclusively dedicated to Timelines, Milestones & UPSC
+            worker_shard = shard - 16
+            worker_num = 4
+            logging.info(f"=== Shard {shard}: Dedicated Timelines & UPSC Worker ({worker_shard}/{worker_num}) ===")
+            r1, more_t = process_timelines(translator(), worker_shard, worker_num, batch, deadline)
+            r2, more_u = process_upsc(translator(), worker_shard, worker_num, batch, deadline)
+            ok = ok and r1 and r2
+            has_more = more_t or more_u
+        else:
+            worker_shard = shard
+            worker_num = num_shards
+            logging.info(f"=== Shard {shard}: Fallback Articles Worker ===")
+            r, has_more = process_articles(translator(), worker_shard, worker_num, batch, deadline)
+            ok = ok and r
+
+    # 3. Small cluster or local/test run (< 20 shards)
+    else:
+        logging.info(f"=== Shard {shard}/{num_shards}: General Worker ===")
+        if shard == 0:
+            ok = process_entities(translator()) and ok
+        r_a, more_a = process_articles(translator(), shard, num_shards, batch, deadline); ok = ok and r_a
+        r_t, more_t = process_timelines(translator(), shard, num_shards, batch, deadline); ok = ok and r_t
+        has_more = more_a or more_t
 
     logging.info(f"--- Done in {time.time()-start:.1f}s ---")
     if not ok:
-        print("has_more=false"); sys.exit(1)
-    print("has_more=true" if (more_a or more_t) else "has_more=false")
+        print("has_more=false")
+        sys.exit(1)
+    print("has_more=true" if has_more else "has_more=false")
 
 if __name__ == '__main__':
     main()
