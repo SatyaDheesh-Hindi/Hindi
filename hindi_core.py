@@ -165,9 +165,14 @@ def entity_gate(en, hi, back="", is_gemma=True):
 _GAP_RE = re.compile(r"(?<![\u0900-\u097F])(के|का|की|ने|को)\s+(के|का|की|ने|को)(?![\u0900-\u097F])"
                      r"|(?<![\u0900-\u097F])(और|व|तथा)\s+ऑफ(?![\u0900-\u097F])|,\s*,|\s{2,}")
 
+_GAP_OK = {("ने", "की")}   # "रंजिता घोष ने की" — की is the verb 'did', not a case marker
+
 def gap_gate(hi):
-    m = _GAP_RE.search(hi or "")
-    return (m is None), (m.group(0).strip() if m else "")
+    for m in _GAP_RE.finditer(hi or ""):
+        if (m.group(1), m.group(2)) in _GAP_OK:
+            continue
+        return False, m.group(0).strip()
+    return True, ""
 
 def verify(en, hi, back="", is_gemma=True):
     """Run all gates. Returns (passed, reasons_dict)."""
@@ -287,7 +292,7 @@ def quality_signals(en, hi):
 # ---------------------------------------------------------------------------
 # Hindi writer (LLM, GGUF via llama.cpp)
 # ---------------------------------------------------------------------------
-PROMPT_VERSION = "hi-v3.5"
+PROMPT_VERSION = "hi-v3.6"
 MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
 MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
 EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
@@ -382,11 +387,13 @@ _INITIAL_HI = {"A": "ए", "B": "बी", "C": "सी", "D": "डी", "E": "�
 # One or more single capital letters (each followed by '.' or a space) right before a
 # Devanagari word: "D.K. शिवकुमार", "M साई कुमार". Acronyms (AD, BJP) never match because
 # their letters are adjacent.
-_INITIALS_RE = re.compile(r"(?<![A-Za-z])((?:[A-Z](?:\.\s?|\s))+)(?=[\u0900-\u097F])")
+_INITIALS_RE = re.compile(r"(?<![A-Za-z0-9&/\-])((?:[A-Z](?:\.\s?|\s))+)(?=[\u0900-\u097F])")
 
 def fix_initials(hi):
     def sub(m):
         letters = re.findall(r"[A-Z]", m.group(1))
+        if letters == ["I"]:          # Roman numeral / 'Division I', not an initial
+            return m.group(1)
         return ".".join(_INITIAL_HI[c] for c in letters) + ". "
     return _INITIALS_RE.sub(sub, hi or "")
 
