@@ -144,6 +144,9 @@ def script_gate(hi):
     for w in re.findall(r"\S+", hi or ""):
         if re.search(r"[\u0900-\u097F]", w) and re.search(r"[A-Za-z]", w):
             bad.add(w)
+        # broken words: two vowel signs in a row ('डेब्यूेंट') or a word starting with a vowel sign
+        elif re.search(r"[\u093E-\u094C][\u093E-\u094C]", w) or re.match(r"[\u093E-\u094D]", w):
+            bad.add(w)
     return (not bad), " ".join(sorted(bad))
 
 def entity_gate(en, hi, back="", is_gemma=True):
@@ -284,7 +287,7 @@ def quality_signals(en, hi):
 # ---------------------------------------------------------------------------
 # Hindi writer (LLM, GGUF via llama.cpp)
 # ---------------------------------------------------------------------------
-PROMPT_VERSION = "hi-v3.4"
+PROMPT_VERSION = "hi-v3.5"
 MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
 MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
 EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
@@ -434,12 +437,29 @@ def parse_names(text, en):
 
 
 def load_known_names(path=NAMES_PATH):
+    """-> (names, surnames) from prompts/names_hi.json."""
     try:
         with open(path, encoding="utf-8") as f:
-            return json.load(f).get("names", {})
+            d = json.load(f)
+        return d.get("names", {}), d.get("surnames", {})
     except Exception as e:
         logging.error(f"Failed to load {path}: {e}")
-        return {}
+        return {}, {}
+
+
+def fix_surnames(names, surnames):
+    """Correct the model's own spelling of a known surname inside a longer name:
+    'Mehul H Doshi = मेहुल एच. दोषी' -> 'मेहुल एच. दोशी' (दोषी means 'guilty').
+    Returns (names, set of English names that were corrected)."""
+    out, fixed = [], set()
+    for e, h in names:
+        ew, hw = e.split(), h.split()
+        if ew and hw and ew[-1] in surnames and hw[-1] != surnames[ew[-1]]:
+            hw[-1] = surnames[ew[-1]]
+            h = " ".join(hw)
+            fixed.add(e)
+        out.append((e, h))
+    return out, fixed
 
 
 def merge_known_names(names, known, en):
@@ -501,7 +521,7 @@ class Translator:
                            n_gpu_layers=int(os.environ.get("HINDI_GPU_LAYERS", "-1")), verbose=False)
         attach_hf_tokenizer(self)
         self.examples, self.short_examples = load_examples()
-        self.known_names = load_known_names()
+        self.known_names, self.known_surnames = load_known_names()
         logging.info(f"Model loaded ({len(self.examples)} article examples, {len(self.short_examples)} short).")
 
     # -- chat plumbing: the style guide goes in the first user turn (works with any chat template)
@@ -549,7 +569,9 @@ class Translator:
         msgs.append({"role": "user", "content": "Before writing the next article, " + NAMES_PROMPT[0].lower()
                      + NAMES_PROMPT[1:] + "\n\n" + _article_msg(title, body)})
         raw = self._chat(msgs, 300, temperature=0.1)
-        return merge_known_names(parse_names(raw, body), getattr(self, "known_names", {}), body)
+        names, fixed = fix_surnames(parse_names(raw, body), getattr(self, "known_surnames", {}))
+        self._surname_fixed = fixed
+        return merge_known_names(names, getattr(self, "known_names", {}), body)
 
     def write_article(self, title, body):
         """-> {"headline", "body", "attempts", "missing_numbers", "names", "missing_names"}.
@@ -595,7 +617,8 @@ class Translator:
                 # Only the curated spellings (prompts/names_hi.json) bind the editor; the model's own
                 # guesses (e.g. Doshi -> दोषी) are exactly what it should be free to correct.
                 known = getattr(self, "known_names", {})
-                binding = [(e, h) for e, h in names if known.get(e) == h]
+                fixed = getattr(self, "_surname_fixed", set())
+                binding = [(e, h) for e, h in names if known.get(e) == h or e in fixed]
                 ed = self.proofread(title, text, out, binding, budget, fix)
                 e_ok, _ = verify(text, ed["body"], is_gemma=True)
                 e_names_ok, _ = name_gate(binding, ed["body"])
