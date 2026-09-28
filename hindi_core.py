@@ -157,17 +157,28 @@ def entity_gate(en, hi, back="", is_gemma=True):
     tolerance = max(1, len(ents) // 4)
     return (len(missing) <= tolerance), ents, missing
 
+# Telltale gaps left when a word goes missing: two case markers in a row
+# ("ऑफिस के का कहना"), "and of" with no noun ("ट्रंप और ऑफ जस्टिस"), stray commas.
+_GAP_RE = re.compile(r"(?<![\u0900-\u097F])(के|का|की|ने|को)\s+(के|का|की|ने|को)(?![\u0900-\u097F])"
+                     r"|(?<![\u0900-\u097F])(और|व|तथा)\s+ऑफ(?![\u0900-\u097F])|,\s*,|\s{2,}")
+
+def gap_gate(hi):
+    m = _GAP_RE.search(hi or "")
+    return (m is None), (m.group(0).strip() if m else "")
+
 def verify(en, hi, back="", is_gemma=True):
     """Run all gates. Returns (passed, reasons_dict)."""
     num_ok, missing, extra = number_gate(en, hi)
     scr_ok, bad = script_gate(hi)
     ent_ok, ents, ent_missing = entity_gate(en, hi, back, is_gemma=is_gemma)
+    gap_ok, gap = gap_gate(hi)
     reasons = {
+        "gap_ok": gap_ok, "gap": gap,
         "number_ok": num_ok, "numbers_missing": missing, "numbers_extra": extra,
         "script_ok": scr_ok, "bad_chars": bad,
         "entity_ok": ent_ok, "entities_missing": ent_missing,
     }
-    return (num_ok and scr_ok and ent_ok), reasons
+    return (num_ok and scr_ok and ent_ok and gap_ok), reasons
 
 def extract_and_mask_all(text):
     """Dynamic POS & Multi-Pattern Token Masking Engine: Extracts and masks timestamps,
