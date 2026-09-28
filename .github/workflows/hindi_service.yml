@@ -14,7 +14,7 @@ on:
       shards:
         description: 'Parallel runners (each takes id % N)'
         required: false
-        default: '6'
+        default: '12'
       loop_count:
         description: 'Internal: self-trigger loop depth (do not set manually)'
         required: false
@@ -36,7 +36,7 @@ jobs:
     steps:
       - id: set-shards
         run: |
-          N="${{ github.event.inputs.shards || '6' }}"
+          N="${{ github.event.inputs.shards || '12' }}"
           if [ "${{ github.event.inputs.test_run }}" = "true" ]; then N=1; fi
           echo "n=$N" >> $GITHUB_OUTPUT
           echo "shards=$(python3 -c "print(list(range($N)))")" >> $GITHUB_OUTPUT
