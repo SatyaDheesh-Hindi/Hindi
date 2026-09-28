@@ -15,6 +15,7 @@ def main():
     heavy = sum(len(r["signals"]["heavy_words"]) for r in res)
     secs = sum(r["seconds"] for r in res) / max(1, n)
     retries = sum(r["new"].get("attempts", 1) > 1 for r in res)
+    name_miss = sum(bool(r["new"].get("missing_names")) for r in res)
     cur = [r for r in res if r["current"]]
     cur_latin = (sum(r["current_signals"]["latin_count"] for r in cur) / len(cur)) if cur else None
     cur_heavy = sum(len(r["current_signals"]["heavy_words"]) for r in cur) if cur else None
@@ -25,7 +26,8 @@ def main():
             f"| number + script gates passed | {gates}/{n} | – |\n"
             f"| English words in Latin script (avg per article, acronyms excluded) | {latin:.1f} | {'' if cur_latin is None else f'{cur_latin:.1f}'} |\n"
             f"| heavy/Sanskritised words (total) | {heavy} | {'' if cur_heavy is None else cur_heavy} |\n"
-            f"| needed a numbers retry | {retries} | – |\n"
+            f"| needed a retry (numbers or names) | {retries} | – |\n"
+            f"| names still misspelt after retry (articles) | {name_miss} | – |\n"
             f"| avg seconds per article | {secs:.0f} | – |\n\n"
             f"Article IDs: `{','.join(str(r['id']) for r in res)}`\n\n")
     md = [head]
@@ -38,9 +40,13 @@ def main():
             flags.append("Latin: " + ", ".join(s["latin_words"]))
         if s["heavy_words"]:
             flags.append("heavy: " + ", ".join(s["heavy_words"]))
+        if r["new"].get("missing_names"):
+            flags.append("⚠️ names: " + "; ".join(r["new"]["missing_names"]))
         md += [f"---\n### {r['id']} · {r['category']} · {r['seconds']}s",
                f"**EN:** {r['en_title']}\n\n> {r['en_body']}\n",
                f"**New:** **{r['new']['headline']}**\n\n> {r['new']['body']}\n"]
+        if r["new"].get("names"):
+            md += ["<details><summary>Name spellings used</summary>\n\n" + "<br>".join(r["new"]["names"]) + "\n\n</details>\n"]
         if r["current"]:
             md += [f"<details><summary>Currently shipped</summary>\n\n**{r['current']['headline']}**\n\n> {r['current']['body']}\n\n</details>\n"]
         if flags:
@@ -58,6 +64,8 @@ def main():
                  f'<span class="chip">{r["seconds"]}s</span>']
         if s["latin_words"]:
             chips.append(f'<span class="chip warn">Latin: {esc(", ".join(s["latin_words"]))}</span>')
+        if r["new"].get("missing_names"):
+            chips.append(f'<span class="chip bad">names: {esc("; ".join(r["new"]["missing_names"]))}</span>')
         if s["heavy_words"]:
             chips.append(f'<span class="chip warn">heavy: {esc(", ".join(s["heavy_words"]))}</span>')
         cur_html = (f'<div class="col"><div class="lbl">Currently shipped</div><h3>{esc(r["current"]["headline"])}</h3>'

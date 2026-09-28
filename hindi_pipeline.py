@@ -179,6 +179,10 @@ def _translate_one(translator, article_id, eng_headline, comp):
         logging.warning(f"Body gate FAIL ID {article_id}: {rb}")
         record_failure(None, None, None, article_id, f"body gate: {rb}")
         return False
+    if out.get("missing_names") and os.environ.get("HINDI_NAME_GATE", "1") == "1":
+        logging.warning(f"Name gate FAIL ID {article_id}: {out['missing_names']}")
+        record_failure(None, None, None, article_id, f"names: {out['missing_names']}")
+        return False
     ok_title, _ = core.script_gate(hi_title)
     if not hi_title or not ok_title:
         hi_title = hi_body.split("।")[0].strip()[:90]

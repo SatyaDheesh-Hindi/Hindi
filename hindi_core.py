@@ -284,7 +284,7 @@ def quality_signals(en, hi):
 # ---------------------------------------------------------------------------
 # Hindi writer (LLM, GGUF via llama.cpp)
 # ---------------------------------------------------------------------------
-PROMPT_VERSION = "hi-v3.1"
+PROMPT_VERSION = "hi-v3.2"
 MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
 MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
 EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
@@ -306,6 +306,7 @@ STYLE
 - Write numbers and dates as digits exactly as in the English (40 लाख, 12,000 करोड़, 15 जुलाई, 2027). Use लाख/करोड़ and रुपये.
 - You may reorder or merge sentences so it reads naturally, but keep every fact, name, date and number. Add nothing that is not in the English. No opinions.
 - Headline: at most 12 words, punchy, no full stop, keeps the main name or number.
+- If a name list is given after the text, use those spellings exactly. Never swap a name for a similar Hindi word.
 
 Reply in exactly this format and nothing else:
 HEADLINE: <Hindi headline>
@@ -362,8 +363,86 @@ def load_examples(path=EXAMPLES_PATH):
         return [], []
 
 
-def _article_msg(title, body):
-    return f"Title: {title or ''}\nText: {body or ''}"
+def _article_msg(title, body, names=None):
+    msg = f"Title: {title or ''}\nText: {body or ''}"
+    if names:
+        msg += "\n\nSpell these names exactly like this:\n" + "\n".join(f"{e} = {h}" for e, h in names)
+    return msg
+
+
+# Latin letter -> how Hindi papers write it as an initial.
+_INITIAL_HI = {"A": "ए", "B": "बी", "C": "सी", "D": "डी", "E": "ई", "F": "एफ", "G": "जी", "H": "एच",
+               "I": "आई", "J": "जे", "K": "के", "L": "एल", "M": "एम", "N": "एन", "O": "ओ", "P": "पी",
+               "Q": "क्यू", "R": "आर", "S": "एस", "T": "टी", "U": "यू", "V": "वी", "W": "डब्ल्यू",
+               "X": "एक्स", "Y": "वाई", "Z": "जेड"}
+# One or more single capital letters (each followed by '.' or a space) right before a
+# Devanagari word: "D.K. शिवकुमार", "M साई कुमार". Acronyms (AD, BJP) never match because
+# their letters are adjacent.
+_INITIALS_RE = re.compile(r"(?<![A-Za-z])((?:[A-Z](?:\.\s?|\s))+)(?=[\u0900-\u097F])")
+
+def fix_initials(hi):
+    def sub(m):
+        letters = re.findall(r"[A-Z]", m.group(1))
+        return ".".join(_INITIAL_HI[c] for c in letters) + ". "
+    return _INITIALS_RE.sub(sub, hi or "")
+
+
+def trim_wrapping_quotes(x):
+    """Remove quotes only when they wrap the whole text; a body that starts with a
+    quoted title ('डबल डेट' शो ...) keeps its opening quote."""
+    x = re.sub(r"\s+", " ", (x or "")).strip()
+    for q in ('"', "'"):
+        if len(x) > 1 and x.startswith(q) and x.endswith(q) and x.count(q) == 2:
+            return x[1:-1].strip()
+    return x
+
+
+NAMES_PROMPT = """List the proper names in this English news: people, places, organisations, companies, parties, films, shows, books and newspapers.
+For each, give the spelling Hindi newspapers use, in Devanagari. Transliterate by sound; never replace a name with a Hindi word.
+Initials become Hindi letters with dots: D.K. -> डी.के., M -> एम.
+Acronyms stay in English letters: BJP, NHTSA, ADB.
+One per line, exactly: English = Hindi
+Example:
+Amit Shah = अमित शाह
+K. Annamalai = के. अन्नामलाई
+The Indian Express = द इंडियन एक्सप्रेस
+Pune = पुणे
+NHTSA = NHTSA
+Reply with the list only."""
+
+def parse_names(text, en):
+    out, seen = [], set()
+    for line in (text or "").splitlines():
+        line = line.strip().lstrip("-*•0123456789. ").replace("**", "")
+        if "=" not in line:
+            continue
+        e, h = [x.strip().strip('"\'') for x in line.split("=", 1)]
+        if not e or not h or e.lower() in seen:
+            continue
+        if e.lower() not in (en or "").lower():      # only names that are really in the article
+            continue
+        if not re.search(r"[\u0900-\u097F]", h):     # acronym kept in English: nothing to enforce
+            continue
+        if re.search(r"[^\u0900-\u097F\s.\-'0-9A-Za-z]", h):
+            continue
+        seen.add(e.lower())
+        out.append((e, fix_initials(h)))
+    return out[:25]
+
+
+def name_gate(names, hi):
+    """Each glossary name's last Devanagari word (the surname / key word) must appear in the
+    Hindi. Only short names (<= 4 words) are enforced; long organisation names may be
+    paraphrased naturally."""
+    missing = []
+    for e, h in names:
+        if len(e.split()) > 4:
+            continue
+        words = [w.strip(".") for w in h.split() if re.search(r"[\u0900-\u097F]", w)]
+        key = words[-1] if words else ""
+        if len(key) >= 2 and key not in (hi or ""):
+            missing.append(f"{e} = {h}")
+    return (not missing), missing
 
 
 class Translator:
@@ -415,38 +494,58 @@ class Translator:
             body = t[m_h.end():].strip()
         return {"headline": head.splitlines()[0] if head else "", "body": body}
 
-    def _article_messages(self, title, body):
+    def _article_messages(self, title, body, names=None):
         msgs, first = [], True
         for ex in self.examples:
             content = _article_msg(ex["en_title"], ex["en_body"])
             msgs.append({"role": "user", "content": (STYLE + "\n\n" if first else "") + content})
             msgs.append({"role": "assistant", "content": f"HEADLINE: {ex['hi_headline']}\nBODY: {ex['hi_body']}"})
             first = False
-        msgs.append({"role": "user", "content": (STYLE + "\n\n" if first else "") + _article_msg(title, body)})
+        msgs.append({"role": "user", "content": (STYLE + "\n\n" if first else "") + _article_msg(title, body, names)})
         return msgs
 
+    def extract_names(self, title, body):
+        raw = self._chat([{"role": "user", "content": NAMES_PROMPT + "\n\n" + _article_msg(title, body)}],
+                         400, temperature=0.1)
+        return parse_names(raw, f"{title}\n{body}")
+
     def write_article(self, title, body):
-        """-> {"headline", "body", "attempts", "missing_numbers"} . One corrective retry
-        if numbers from the English are missing."""
+        """-> {"headline", "body", "attempts", "missing_numbers", "names", "missing_names"}.
+        1) name glossary (short call), 2) rewrite using those spellings, 3) at most one
+        corrective retry for missing numbers and/or names."""
         text = re.sub(r"\*\*", "", body or "").strip()
         title = re.sub(r"\*\*", "", title or "").strip()
-        msgs = self._article_messages(title, text)
+        try:
+            names = self.extract_names(title, text)
+        except Exception as e:
+            logging.warning(f"name glossary failed: {e}")
+            names = []
+        msgs = self._article_messages(title, text, names)
         budget = min(1400, 300 + len(text))
         raw = self._chat(msgs, budget)
         res = self._parse_article(raw)
+        post = lambda r: {"headline": fix_initials(trim_wrapping_quotes(r.get("headline"))).rstrip("।. "),
+                          "body": fix_initials(trim_wrapping_quotes(r.get("body")))}
+        out = post(res)
         attempts = 1
-        ok, missing, _ = number_gate(text, res.get("body", ""))
-        if not ok:
+        n_ok, missing, _ = number_gate(text, out["body"])
+        nm_ok, missing_names = name_gate(names, out["body"])
+        if not (n_ok and nm_ok):
+            ask = []
+            if not n_ok:
+                ask.append("These numbers or dates from the English are missing in your Hindi: " + ", ".join(missing) + ".")
+            if not nm_ok:
+                ask.append("Use these exact name spellings: " + "; ".join(missing_names) + ".")
             msgs += [{"role": "assistant", "content": raw},
-                     {"role": "user", "content": "These numbers or dates from the English are missing in your Hindi: "
-                      + ", ".join(missing) + ". Rewrite the same Hindi with every number written exactly, in the same HEADLINE/BODY format."}]
+                     {"role": "user", "content": " ".join(ask) + " Rewrite the same Hindi with these fixed, in the same HEADLINE/BODY format."}]
             raw = self._chat(msgs, budget, temperature=0.2)
-            res = self._parse_article(raw)
+            out = post(self._parse_article(raw))
             attempts = 2
-            ok, missing, _ = number_gate(text, res.get("body", ""))
-        clean = lambda x: re.sub(r"\s+", " ", (x or "")).strip().strip('"\'')
-        return {"headline": clean(res.get("headline")).rstrip("।. "), "body": clean(res.get("body")),
-                "attempts": attempts, "missing_numbers": [] if ok else missing}
+            n_ok, missing, _ = number_gate(text, out["body"])
+            nm_ok, missing_names = name_gate(names, out["body"])
+        out.update({"attempts": attempts, "missing_numbers": [] if n_ok else missing,
+                    "names": [f"{e} = {h}" for e, h in names], "missing_names": missing_names})
+        return out
 
     def en2hi(self, text):
         return self.write_article("", text)["body"]
@@ -462,7 +561,7 @@ class Translator:
             first = False
         msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + text})
         out = self._chat(msgs, 120).replace("**", "").strip().splitlines()
-        return (out[0] if out else "").strip().strip('"\'').rstrip("।. ")
+        return fix_initials(trim_wrapping_quotes(out[0] if out else "")).rstrip("।. ")
 
     def hi2en(self, text):
         return ""  # back-translation not used on the LLM path (names are Devanagari by design)
