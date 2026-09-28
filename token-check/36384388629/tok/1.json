@@ -1,0 +1,132 @@
+{
+ "label": "B latest llama.cpp from source, unsloth Q4_K_M",
+ "repo": "unsloth/gemma-4-12b-it-GGUF",
+ "file": "gemma-4-12b-it-Q4_K_M.gguf",
+ "llama_cpp_python": "0.3.35",
+ "roundtrip": [
+  {
+   "text": "डिपार्टमेंट",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "मुख्यमंत्री",
+   "n_tokens": 1,
+   "whole_ok": false,
+   "pieces_ok": false,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "प्रतिनिधियों",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "पदाधिकारियों",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "व्यापारियों",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कपूरथला",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "अमरिंदर",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "नौकरशाहों",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "एडमिनिस्ट्रेशन",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "इंफ्रास्ट्रक्चर",
+   "n_tokens": 4,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कॉर्पोरेशन",
+   "n_tokens": 3,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "सहकारी",
+   "n_tokens": 2,
+   "whole_ok": true,
+   "pieces_ok": true,
+   "whole": "",
+   "pieces": ""
+  },
+  {
+   "text": "कर्नाटक के मुख्यमंत्री डी.के. शिवकुमार न",
+   "n_tokens": 35,
+   "whole_ok": false,
+   "pieces_ok": false,
+   "whole": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और स",
+   "pieces": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और स"
+  }
+ ],
+ "copy": {
+  "output": "कर्नाटक के डी.के. शिवकुमार ने जन और नौकरशाहों से मुलाकात की, जबकि ऑफ जस्टिस और सोसाइटी के ने से बात की।",
+  "exact": false,
+  "missing": [
+   "डिपार्टमेंट",
+   "मुख्यमंत्री",
+   "प्रतिनिधियों",
+   "पदाधिकारियों",
+   "व्यापारियों"
+  ],
+  "seconds": 15.8
+ },
+ "rewrite": {
+  "headline": "जज ने ट्रंप और DOJ के सेटलमेंट को रद्द किया, 1.8 बिलियन फंड को बताया गैरकानूनी",
+  "body": "सोमवार को US डिस्ट्रिक्ट जज कैथलीन विलियम्स ने डोनाल्ड ट्रंप और ऑफ जस्टिस (DOJ) के बीच हुए एक सेटलमेंट को रद्द कर दिया। उन्होंने इसे गैरकानूनी सेल्फ-डीलिंग बताया। ट्रंप ने टैक्स रिटर्न लीक होने पर IRS पर 10 बिलियन डॉलर का केस किया था। इसके बाद DOJ ने टैक्सपेयर्स से 1.8 बिलियन डॉलर लेकर एक एंटी-वेपनिज़ेशन फंड में डालने पर सहमति जताई थी।",
+  "seconds": 175.5,
+  "has_department": false,
+  "gap_ऑफ_जस्टिस": true,
+  "script_ok": true
+ }
+}
