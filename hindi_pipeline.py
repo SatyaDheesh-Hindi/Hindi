@@ -516,6 +516,8 @@ def _git_checkpoint_entity_lib(lib_dir):
             subprocess.run(["git", "config", "user.name", "Satya Bot"], cwd=lib_dir, check=True)
             subprocess.run(["git", "config", "user.email", "satya-bot@github.com"], cwd=lib_dir, check=True)
             subprocess.run(["git", "commit", "-m", f"Auto-checkpoint entities_hi.json [{time.strftime('%Y-%m-%d %H:%M')}]"], cwd=lib_dir, check=True, capture_output=True)
+            # Rebase against any remote commits before pushing
+            subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=lib_dir, capture_output=True, text=True)
             push_res = subprocess.run(["git", "push", "origin", "main"], cwd=lib_dir, capture_output=True, text=True)
             if push_res.returncode == 0:
                 logging.info("Checkpoint: entities_hi.json committed and pushed to GitHub.")
@@ -619,10 +621,13 @@ def process_entities(translator, deadline=None):
             state_hi = tr_field(p.get('state', ''), tp.get('state_hi') if p.get('state') == tp.get('state') else None, f"{name}.state")
             const_hi = tr_field(p.get('constituency', ''), tp.get('constituency_hi') if p.get('constituency') == tp.get('constituency') else None, f"{name}.constituency")
 
-            # Controversies & incidents caching
+            # Controversies & incidents caching (cap to 15 latest per politician, check deadline)
             controversies_dst = []
             existing_c_map = {c.get('source_url'): c for c in tp.get('controversies', []) if c.get('source_url')}
-            for c in p.get('controversies', []):
+            for c in p.get('controversies', [])[:15]:
+                if deadline and time.time() >= deadline:
+                    has_more = True
+                    break
                 e_entry = existing_c_map.get(c.get('source_url'))
                 ex_text = e_entry.get('incident_text') if e_entry else None
                 inc_text_hi = tr_field(c.get('incident_text', ''), ex_text, f"{name}.controversy")
@@ -630,7 +635,10 @@ def process_entities(translator, deadline=None):
 
             incidents_dst = []
             existing_i_map = {c.get('source_url'): c for c in tp.get('criminal_incidents', []) if c.get('source_url')}
-            for c in p.get('criminal_incidents', []):
+            for c in p.get('criminal_incidents', [])[:15]:
+                if deadline and time.time() >= deadline:
+                    has_more = True
+                    break
                 e_entry = existing_i_map.get(c.get('source_url'))
                 ex_text = e_entry.get('incident_text') if e_entry else None
                 inc_text_hi = tr_field(c.get('incident_text', ''), ex_text, f"{name}.criminal_incident")

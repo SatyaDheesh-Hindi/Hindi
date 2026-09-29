@@ -193,6 +193,7 @@ jobs:
             git add entities_hi.json
             if ! git diff --staged --quiet; then
               git commit -m "Auto-compile entities_hi.json [$(date '+%Y-%m-%d')]"
+              git pull --rebase origin main
               git push origin main
             else
               echo "No changes in entities_hi.json"
