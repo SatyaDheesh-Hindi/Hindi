@@ -143,17 +143,35 @@ def _skip_ids():
     return done
 
 
-def _candidate_ids(shard, num_shards, skip):
+def _candidate_ids(shard, num_shards, skip, fresh_only=False, backlog_only=False):
     """Newest first: every untranslated article from the last HINDI_WINDOW_DAYS days,
-    plus every article translated/failed under an older model (redo)."""
+    plus every article translated/failed under an older model (redo).
+    - fresh_only: articles from the last HINDI_FRESH_HOURS (default 48h), translated_hi = 0 only
+    - backlog_only: older articles within 30-day window (scraped_at < fresh_cutoff) + redo articles
+    - standard: all articles within HINDI_WINDOW_DAYS
+    """
+    fresh_hours = int(os.environ.get("HINDI_FRESH_HOURS", 48))
+    fresh_cutoff = int(time.time()) - fresh_hours * 3600
     days = int(os.environ.get("HINDI_WINDOW_DAYS", 30))
-    cutoff = int(time.time()) - days * 86400
+    window_cutoff = int(time.time()) - days * 86400
+
     conn_a = get_db_connection()
     cur_a = conn_a.cursor()
-    cur_a.execute(
-        "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? "
-        "AND ((translated_hi = 0 AND scraped_at >= ?) OR translated_hi IN (1, 2)) ORDER BY id DESC",
-        (num_shards, shard, cutoff))
+    if fresh_only:
+        cur_a.execute(
+            "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? "
+            "AND translated_hi = 0 AND scraped_at >= ? ORDER BY id DESC",
+            (num_shards, shard, fresh_cutoff))
+    elif backlog_only:
+        cur_a.execute(
+            "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? "
+            "AND ((translated_hi = 0 AND scraped_at < ? AND scraped_at >= ?) OR translated_hi IN (1, 2)) ORDER BY id DESC",
+            (num_shards, shard, fresh_cutoff, window_cutoff))
+    else:
+        cur_a.execute(
+            "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? "
+            "AND ((translated_hi = 0 AND scraped_at >= ?) OR translated_hi IN (1, 2)) ORDER BY id DESC",
+            (num_shards, shard, window_cutoff))
     ids = [r[0] for r in cur_a.fetchall() if r[0] not in skip]
     conn_a.close()
     return ids
@@ -213,13 +231,14 @@ def _translate_one(translator, article_id, eng_headline, comp):
     return False
 
 
-def process_articles(translator, shard, num_shards, batch_size, deadline=None):
+def process_articles(translator, shard, num_shards, batch_size, deadline=None, fresh_only=False, backlog_only=False):
     """Work through the queue until it is empty or the deadline passes.
     Returns (ok, has_more)."""
-    logging.info(f"--- Articles & Headlines ({core.PROMPT_VERSION}) ---")
+    tier_label = "Fresh" if fresh_only else ("Backlog" if backlog_only else "All")
+    logging.info(f"--- Articles & Headlines ({core.PROMPT_VERSION}) [{tier_label} | worker {shard}/{num_shards}] ---")
     try:
         _ensure_trans_schema()
-        ids = _candidate_ids(shard, num_shards, _skip_ids())
+        ids = _candidate_ids(shard, num_shards, _skip_ids(), fresh_only=fresh_only, backlog_only=backlog_only)
     except Exception as e:
         logging.critical(f"Build article queue failed: {e}")
         return False, False
@@ -227,7 +246,7 @@ def process_articles(translator, shard, num_shards, batch_size, deadline=None):
     max_n = int(os.environ.get("HINDI_MAX_ARTICLES", 0))
     if max_n:
         ids = ids[:max_n]
-    logging.info(f"Queue for shard {shard}/{num_shards}: {len(ids)} articles")
+    logging.info(f"Queue for shard {shard}/{num_shards} [{tier_label}]: {len(ids)} articles")
     if not ids:
         return True, False
 
@@ -249,9 +268,26 @@ def process_articles(translator, shard, num_shards, batch_size, deadline=None):
             logging.error(f"Fetch chunk failed: {e}")
             time.sleep(5)
             continue
+
+        # In-flight duplicate check against DB B (defense-in-depth)
+        already_done_ids = set()
+        try:
+            c_b = get_translation_db_connection()
+            cur_b = c_b.cursor()
+            ph_b = ",".join("?" * len(chunk))
+            cur_b.execute(f"SELECT article_id FROM translations WHERE article_id IN ({ph_b}) AND hi_version = ?", (*chunk, core.PROMPT_VERSION))
+            already_done_ids = {r[0] for r in cur_b.fetchall()}
+            c_b.close()
+        except Exception:
+            already_done_ids = set()
+
         for article_id, eng_headline, comp in rows:
             if deadline and time.time() >= deadline:
                 break
+            if article_id in already_done_ids:
+                logging.info(f"ID {article_id} already translated by another worker — skipping.")
+                saved += 1
+                continue
             logging.info(f"[{saved + failed + 1}/{len(ids)}] ID {article_id}: {str(eng_headline)[:50]}")
             try:
                 if _translate_one(translator, article_id, eng_headline, comp):
@@ -747,20 +783,31 @@ def main():
     elif num_shards >= 20:
         if shard == 0:
             logging.info("=== Shard 0: Dedicated Entities & Politicians Worker ===")
-            ok, more_e = process_entities(translator(), deadline=deadline)
+            ok_e, more_e = process_entities(translator(), deadline=deadline)
+            ok = ok and ok_e
+            has_more = has_more or more_e
             if not more_e and time.time() < (deadline - 300):
-                logging.info("Entities complete! Shard 0 now assisting with remaining news articles.")
-                r, has_more = process_articles(translator(), 0, 16, batch, deadline)
+                logging.info("Entities complete! Shard 0 now assisting with backlog news articles (0/20).")
+                r, more_b = process_articles(translator(), 0, 20, batch, deadline, backlog_only=True)
                 ok = ok and r
-            else:
-                has_more = more_e
+                has_more = has_more or more_b
+
         elif 1 <= shard <= 15:
-            # 15 shards exclusively dedicated to News Articles & Headlines
+            # 15 shards exclusively dedicated to Fresh News Articles & Headlines first
             worker_shard = shard - 1
             worker_num = 15
-            logging.info(f"=== Shard {shard}: Dedicated Articles Worker ({worker_shard}/{worker_num}) ===")
-            r, has_more = process_articles(translator(), worker_shard, worker_num, batch, deadline)
-            ok = ok and r
+            logging.info(f"=== Shard {shard}: Dedicated Articles Worker (Fresh: {worker_shard}/{worker_num}) ===")
+            r1, more_f = process_articles(translator(), worker_shard, worker_num, batch, deadline, fresh_only=True)
+            ok = ok and r1
+            has_more = has_more or more_f
+
+            # When fresh breaking news is complete, assist with backlog modulo 20
+            if not more_f and time.time() < (deadline - 300):
+                logging.info(f"Fresh articles complete! Shard {shard} now processing backlog ({shard}/20).")
+                r2, more_b = process_articles(translator(), shard, 20, batch, deadline, backlog_only=True)
+                ok = ok and r2
+                has_more = has_more or more_b
+
         elif 16 <= shard <= 19:
             # 4 shards exclusively dedicated to Timelines, Milestones & UPSC
             worker_shard = shard - 16
@@ -770,6 +817,13 @@ def main():
             r2, more_u = process_upsc(translator(), worker_shard, worker_num, batch, deadline)
             ok = ok and r1 and r2
             has_more = more_t or more_u
+
+            # When Timelines & UPSC complete, assist with backlog modulo 20
+            if not more_t and not more_u and time.time() < (deadline - 300):
+                logging.info(f"Timelines & UPSC complete! Shard {shard} now assisting with backlog news articles ({shard}/20).")
+                r3, more_b = process_articles(translator(), shard, 20, batch, deadline, backlog_only=True)
+                ok = ok and r3
+                has_more = has_more or more_b
         else:
             worker_shard = shard
             worker_num = num_shards
@@ -786,7 +840,8 @@ def main():
             has_more = has_more or more_e
         r_a, more_a = process_articles(translator(), shard, num_shards, batch, deadline); ok = ok and r_a
         r_t, more_t = process_timelines(translator(), shard, num_shards, batch, deadline); ok = ok and r_t
-        has_more = has_more or more_a or more_t
+        r_u, more_u = process_upsc(translator(), shard, num_shards, batch, deadline); ok = ok and r_u
+        has_more = has_more or more_a or more_t or more_u
 
     logging.info(f"--- Done in {time.time()-start:.1f}s ---")
     if not ok:
