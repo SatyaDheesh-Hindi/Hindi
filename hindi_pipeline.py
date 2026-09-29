@@ -621,27 +621,29 @@ def process_entities(translator, deadline=None):
             state_hi = tr_field(p.get('state', ''), tp.get('state_hi') if p.get('state') == tp.get('state') else None, f"{name}.state")
             const_hi = tr_field(p.get('constituency', ''), tp.get('constituency_hi') if p.get('constituency') == tp.get('constituency') else None, f"{name}.constituency")
 
-            # Controversies & incidents caching (cap to 15 latest per politician, check deadline)
+            # Controversies & incidents caching (all items preserved; untranslated carried over gracefully)
             controversies_dst = []
             existing_c_map = {c.get('source_url'): c for c in tp.get('controversies', []) if c.get('source_url')}
-            for c in p.get('controversies', [])[:15]:
-                if deadline and time.time() >= deadline:
-                    has_more = True
-                    break
+            for c in p.get('controversies', []):
                 e_entry = existing_c_map.get(c.get('source_url'))
                 ex_text = e_entry.get('incident_text') if e_entry else None
-                inc_text_hi = tr_field(c.get('incident_text', ''), ex_text, f"{name}.controversy")
+                if deadline and time.time() >= deadline and not ex_text:
+                    inc_text_hi = c.get('incident_text', '')
+                    has_more = True
+                else:
+                    inc_text_hi = tr_field(c.get('incident_text', ''), ex_text, f"{name}.controversy")
                 controversies_dst.append(dict(c, incident_text=inc_text_hi))
 
             incidents_dst = []
             existing_i_map = {c.get('source_url'): c for c in tp.get('criminal_incidents', []) if c.get('source_url')}
-            for c in p.get('criminal_incidents', [])[:15]:
-                if deadline and time.time() >= deadline:
-                    has_more = True
-                    break
+            for c in p.get('criminal_incidents', []):
                 e_entry = existing_i_map.get(c.get('source_url'))
                 ex_text = e_entry.get('incident_text') if e_entry else None
-                inc_text_hi = tr_field(c.get('incident_text', ''), ex_text, f"{name}.criminal_incident")
+                if deadline and time.time() >= deadline and not ex_text:
+                    inc_text_hi = c.get('incident_text', '')
+                    has_more = True
+                else:
+                    inc_text_hi = tr_field(c.get('incident_text', ''), ex_text, f"{name}.criminal_incident")
                 incidents_dst.append(dict(c, incident_text=inc_text_hi))
 
             np = {
