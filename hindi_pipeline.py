@@ -324,10 +324,10 @@ def process_timelines(translator, shard, num_shards, batch_size, deadline=None):
             hi_title = None
             if title:
                 try:
-                    cand = translator.en2hi_short(title)
+                    cand = translator.translate_event_title(title) if hasattr(translator, 'translate_event_title') else translator.en2hi_short(title)
                     ok, _ = core.verify(title, cand)
-                    if ok:
-                        hi_title = cand
+                    if ok and cand.strip():
+                        hi_title = cand.strip()
                 except Exception as ex:
                     logging.error(f"Event {ev_id} title translation failed: {ex}")
 
@@ -348,13 +348,13 @@ def process_timelines(translator, shard, num_shards, batch_size, deadline=None):
             # 3. Translate milestones in memory first (NEVER hold DB connections during LLM calls)
             translated_milestones = []
             for art_id, desc in milestones:
-                if not desc:
+                if not desc or not str(desc).strip():
                     continue
                 try:
-                    m_hi = translator.en2hi_short(desc)
+                    m_hi = translator.translate_milestone(desc) if hasattr(translator, 'translate_milestone') else translator.en2hi_short(desc)
                     ok_m, _ = core.verify(desc, m_hi)
-                    if ok_m:
-                        translated_milestones.append((art_id, m_hi))
+                    if ok_m and m_hi and m_hi.strip():
+                        translated_milestones.append((art_id, m_hi.strip()))
                 except Exception as ex_m:
                     logging.error(f"Milestone {ev_id}/{art_id} translation failed: {ex_m}")
 
@@ -467,9 +467,9 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
                 return True, True
 
             try:
-                why_hi = translator.en2hi_short(why_news) if why_news else ""
-                fact_hi = translator.en2hi_short(fact_box) if fact_box else ""
-                mains_hi = translator.en2hi_short(mains_q) if mains_q else ""
+                why_hi = translator.translate_upsc_field(why_news, "why_in_news") if hasattr(translator, "translate_upsc_field") else translator.en2hi_short(why_news) if why_news else ""
+                fact_hi = translator.translate_upsc_field(fact_box, "fact_box") if hasattr(translator, "translate_upsc_field") else translator.en2hi_short(fact_box) if fact_box else ""
+                mains_hi = translator.translate_upsc_field(mains_q, "mains_q") if hasattr(translator, "translate_upsc_field") else translator.en2hi_short(mains_q) if mains_q else ""
 
                 pointers_hi = []
                 if prelims_json:
@@ -478,9 +478,12 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
                         if isinstance(p_list, list):
                             for p in p_list:
                                 if isinstance(p, dict) and p.get("text"):
-                                    pointers_hi.append({"type": p.get("type", "fact"), "text": translator.en2hi_short(p["text"])})
-                                elif isinstance(p, str):
-                                    pointers_hi.append({"type": "fact", "text": translator.en2hi_short(p)})
+                                    p_txt = p["text"]
+                                    p_hi = translator.translate_upsc_field(p_txt, "pointer") if hasattr(translator, "translate_upsc_field") else translator.en2hi_short(p_txt)
+                                    pointers_hi.append({"type": p.get("type", "fact"), "text": p_hi or p_txt})
+                                elif isinstance(p, str) and p.strip():
+                                    p_hi = translator.translate_upsc_field(p, "pointer") if hasattr(translator, "translate_upsc_field") else translator.en2hi_short(p)
+                                    pointers_hi.append({"type": "fact", "text": p_hi or p})
                     except Exception:
                         pointers_hi = []
 

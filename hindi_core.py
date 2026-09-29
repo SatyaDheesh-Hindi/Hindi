@@ -141,7 +141,9 @@ def script_gate(hi):
             o = ord(ch)
             if not (0x0900 <= o <= 0x097F or o < 0x250):
                 bad.add(ch)
-    for w in re.findall(r"\S+", hi or ""):
+    # Check for single words mixing Devanagari and Latin letters (e.g. 'अमरinder').
+    # Delimiters like hyphens, slashes, or quotes (e.g. 'AI-आधारित', 'COVID-19') connect distinct tokens, which is valid.
+    for w in re.findall(r"[^\s.,;:!?'\"/()\-–—]+", hi or ""):
         if re.search(r"[\u0900-\u097F]", w) and re.search(r"[A-Za-z]", w):
             bad.add(w)
         # broken words: two vowel signs in a row ('डेब्यूेंट') or a word starting with a vowel sign
@@ -321,17 +323,79 @@ Reply in exactly this format and nothing else:
 HEADLINE: <Hindi headline>
 BODY: <Hindi news>"""
 
-SHORT_STYLE = """You write short Hindi text (headlines, timeline updates, job titles) for a Hindi news app.
+SHORT_STYLE = """You write short Hindi text (headlines, job titles) for a Hindi news app.
 Everyday spoken Hindi; common English words in Devanagari; acronyms (BJP, CBI, UPI) in English letters;
-numbers as digits exactly as given; names in Devanagari; no full stop; add nothing.
+numbers as digits exactly as given; names in Devanagari; no trailing full stop; add nothing.
 Reply with only the Hindi text, one line."""
+
+# ---------------------------------------------------------------------------
+# UPSC Exam Prompts (मानक प्रशासनिक एवं अकादमिक हिंदी)
+# ---------------------------------------------------------------------------
+UPSC_WHY_STYLE = """You write Hindi study material for UPSC Civil Services Examination (IAS/IPS) aspirants.
+Translate the "Why in News" context into formal, objective, standard administrative Hindi (मानक प्रशासनिक हिंदी).
+- Professional, clear, and dignified tone.
+- Official acronyms (e.g. AI, RBI, SEBI, SC, HC, POCSO) remain in English capital letters.
+- Proper names of persons and places in Devanagari.
+- Keep numbers, percentages, and dates exact.
+- End with full stop (।).
+Reply with ONLY the Hindi translation, nothing else."""
+
+UPSC_FACT_STYLE = """You write Hindi study material for UPSC Civil Services Examination (IAS/IPS) aspirants.
+Translate the "Fact Box" into formal administrative and policy Hindi (मानक प्रशासनिक हिंदी).
+- High quality administrative, economic, and constitutional terminology (e.g. नियामक ढांचा, वित्तीय समावेशन, लैंगिक समानता, संवैधानिक प्रावधान).
+- Maintain complete, well-formed sentences separated by full stops (।).
+- Keep exact data figures, percentages, dates, and amounts.
+- Statutory and institutional terms in formal Hindi or standard Devanagari. Acronyms (e.g. POCSO, IT Act, CAG, IMF, TIIC) stay in English capital letters.
+Reply with ONLY the Hindi translation, nothing else."""
+
+UPSC_POINTER_STYLE = """You write high-yield Prelims pointers for UPSC Civil Services Examination aspirants in Hindi.
+Translate the factual pointer into concise, authoritative academic Hindi.
+- Clear, factual, and unambiguous.
+- Retain exact numbers, act titles, constitutional articles, and scientific/policy terms.
+- Acronyms stay in English letters.
+- End with full stop (।).
+Reply with ONLY the Hindi translation, nothing else."""
+
+UPSC_MAINS_STYLE = """You translate and frame UPSC Civil Services Mains Examination questions into standard UPSC Hindi (मानक परीक्षा हिंदी).
+- Formulate as a complete, formal analytical Mains question.
+- Always conclude with the formal UPSC question directive in Hindi:
+  "चर्चा कीजिए।" (Discuss), "का समालोचनात्मक परीक्षण कीजिए।" (Critically examine), "का विश्लेषण कीजिए।" (Analyze), "स्पष्ट कीजिए।" (Elucidate), or "मूल्यांकन कीजिए।" (Evaluate).
+- Never leave as an incomplete fragment or bare noun phrase (e.g., never end with just "पर चर्चा" without a verb).
+- Use formal academic terminology (e.g., नैतिक व सुरक्षा निहितार्थ, संस्थागत चुनौतियां, विनियामक तंत्र).
+Reply with ONLY the Hindi question, nothing else."""
+
+# ---------------------------------------------------------------------------
+# Timeline Prompts (गंभीर पत्रकारीय हिंदी)
+# ---------------------------------------------------------------------------
+TIMELINE_MILESTONE_STYLE = """You write chronological event milestones for a serious Indian news timeline.
+Translate the milestone into dignified journalistic Hindi (गंभीर पत्रकारीय हिंदी).
+- Clear, active, and factual statement of what occurred.
+- Dignified Hindi vocabulary instead of crude Hinglish (e.g., "मानहानि का मुकदमा" instead of "defamation का case", "न्यायिक प्रक्रिया" instead of "judicial process", "याचिका खारिज" instead of "petition reject").
+- Institutional and organizational names in Devanagari (जैसे: सुप्रीम कोर्ट, सीबीआई, हाईकोर्ट) or standard English acronyms (BJP, ED, NIA, WHO, Meta, X).
+- Keep numbers, dates, and amounts exact.
+- End with a full stop (।) if it is a complete sentence.
+Reply with ONLY the Hindi text, nothing else."""
+
+EVENT_TITLE_STYLE = """You write concise event timeline titles in Hindi.
+- Punchy, authoritative summary of the ongoing story (under 12 words).
+- Standard news Hindi, avoiding cheap colloquialisms.
+- Acronyms (BJP, AAP, ED, CBI) in English letters. Names in Devanagari.
+- No trailing full stop.
+Reply with ONLY the Hindi title, one line."""
 
 ARTICLE_SCHEMA = {"type": "object", "properties": {"headline": {"type": "string"}, "body": {"type": "string"}},
                   "required": ["headline", "body"]}
 SHORT_SCHEMA = {"type": "object", "properties": {"hindi": {"type": "string"}}, "required": ["hindi"]}
 
 
-_CONTROL_RE = re.compile(r"<\|?(?:start_of_turn|end_of_turn|eos|bos|pad|turn|mask|unused\d*)[^>]*\|?>|<\/?s>")
+_BLOCK_RE = re.compile(
+    r"<thought>[\s\S]*?<\/thought>|<\|channel>[a-zA-Z0-9_]+[\s\S]*?<channel\|?>",
+    re.I
+)
+_CONTROL_RE = re.compile(
+    r"<\|?(?:start_of_turn|end_of_turn|eos|bos|pad|turn|mask|channel|thought|unused\d*)[^>]*\|?>\s*(?:model|user|assistant)?|<\/?s>",
+    re.I
+)
 
 def patch_detokenize(llm):
     """llama.cpp skips tokens typed as 'special' when decoding, and Gemma 4's vocab types many
@@ -359,7 +423,15 @@ def attach_hf_tokenizer(translator, repo=None):
 
 
 def strip_control(text):
-    return _CONTROL_RE.sub("", text or "")
+    if not text:
+        return ""
+    # 1. Purge full thought blocks and Gemma channels first
+    cleaned = _BLOCK_RE.sub("", text)
+    # 2. Purge control tokens, turn markers, and single tags
+    cleaned = _CONTROL_RE.sub("", cleaned)
+    # 3. Strip any residual special bracketed control sequences like <|...|> or <channel|>
+    cleaned = re.sub(r"<\|[a-zA-Z0-9_\-\s|]+>|<channel\|?>", "", cleaned)
+    return cleaned.strip()
 
 
 def load_examples(path=EXAMPLES_PATH):
@@ -656,6 +728,49 @@ class Translator:
     def en2hi(self, text):
         return self.write_article("", text)["body"]
 
+    def translate_upsc_field(self, text, field_type):
+        """Translates UPSC fields with academic standards and sufficient token budget."""
+        text = re.sub(r"\*\*", "", (text or "").strip())
+        if not text:
+            return ""
+
+        style_map = {
+            "why_in_news": (UPSC_WHY_STYLE, 250),
+            "fact_box": (UPSC_FACT_STYLE, 450),
+            "pointer": (UPSC_POINTER_STYLE, 250),
+            "mains_q": (UPSC_MAINS_STYLE, 300),
+        }
+        style_prompt, max_toks = style_map.get(field_type, (UPSC_FACT_STYLE, 350))
+        msgs = [{"role": "user", "content": style_prompt + f"\n\nSource text:\n{text}"}]
+        raw = self._chat(msgs, max_toks, temperature=0.15)
+        raw = re.sub(r"\*\*", "", raw).strip()
+        lines = [line.strip() for line in raw.splitlines() if line.strip() and not re.match(r"^(?:hindi|translation|उत्तर|अनुवाद)\s*:\s*", line, re.I)]
+        res = " ".join(lines) if field_type in ("fact_box", "why_in_news") else (lines[0] if lines else "")
+        return fix_initials(trim_wrapping_quotes(res))
+
+    def translate_milestone(self, text):
+        """Translates timeline milestones into dignified journalistic Hindi."""
+        text = re.sub(r"\*\*", "", (text or "").strip())
+        if not text:
+            return ""
+        msgs = [{"role": "user", "content": TIMELINE_MILESTONE_STYLE + f"\n\nMilestone:\n{text}"}]
+        raw = self._chat(msgs, 250, temperature=0.2)
+        raw = re.sub(r"\*\*", "", raw).strip()
+        lines = [line.strip() for line in raw.splitlines() if line.strip() and not re.match(r"^(?:hindi|translation|अनुवाद)\s*:\s*", line, re.I)]
+        res = " ".join(lines) if lines else ""
+        return fix_initials(trim_wrapping_quotes(res))
+
+    def translate_event_title(self, text):
+        """Translates event title into crisp news Hindi."""
+        text = re.sub(r"\*\*", "", (text or "").strip())
+        if not text:
+            return ""
+        msgs = [{"role": "user", "content": EVENT_TITLE_STYLE + f"\n\nTitle:\n{text}"}]
+        raw = self._chat(msgs, 100, temperature=0.2)
+        raw = re.sub(r"\*\*", "", raw).strip().splitlines()
+        res = raw[0] if raw else ""
+        return fix_initials(trim_wrapping_quotes(res)).rstrip("।. ")
+
     def en2hi_short(self, text):
         text = re.sub(r"\*\*", "", (text or "").strip())
         if not text:
@@ -666,8 +781,9 @@ class Translator:
             msgs.append({"role": "assistant", "content": ex["hi"]})
             first = False
         msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + text})
-        out = self._chat(msgs, 120).replace("**", "").strip().splitlines()
-        return fix_initials(trim_wrapping_quotes(out[0] if out else "")).rstrip("।. ")
+        out = self._chat(msgs, 150).replace("**", "").strip().splitlines()
+        res = out[0] if out else ""
+        return fix_initials(trim_wrapping_quotes(res)).rstrip("।. ")
 
     def hi2en(self, text):
         return ""  # back-translation not used on the LLM path (names are Devanagari by design)
