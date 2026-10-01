@@ -118,11 +118,12 @@ def _ensure_trans_schema():
     cur_b = conn_b.cursor()
     cur_b.execute("CREATE TABLE IF NOT EXISTS translations (article_id INTEGER PRIMARY KEY, rephrased_article_hi BLOB, rephrased_title_hi TEXT, headline_verified_hi INTEGER DEFAULT 0)")
     cur_b.execute("CREATE TABLE IF NOT EXISTS translation_failures (article_id INTEGER PRIMARY KEY, attempts INTEGER DEFAULT 0, last_error TEXT)")
-    for tbl in ("translations", "translation_failures"):
+    for tbl, col in (("translations", "hi_version"), ("translation_failures", "hi_version"),
+                     ("translations", "title_src")):
         cur_b.execute(f"PRAGMA table_info({tbl})")
-        if "hi_version" not in [r[1] for r in cur_b.fetchall()]:
+        if col not in [r[1] for r in cur_b.fetchall()]:
             try:
-                cur_b.execute(f"ALTER TABLE {tbl} ADD COLUMN hi_version TEXT")
+                cur_b.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT")
             except Exception as e:  # another shard added it first
                 if "duplicate" not in str(e).lower():
                     raise
@@ -161,13 +162,56 @@ def _redo_ids(shard, num_shards):
     return {i for i in ids if i % num_shards == shard}
 
 
+HEADLINE_STALE = "headline-changed"
+
+
+def sync_headlines():
+    """The headline validator can rewrite an English headline up to 72h after it was written.
+    Translations made from an older headline are marked for redo (hi_version = 'headline-changed',
+    which the backlog queue picks up like any other-version row), so the Hindi headline follows.
+    Only translations that recorded their source headline (title_src) can be checked.
+    Runs once per run (shard 0): ~1 index range of the last 3 days + one lookup per translated id."""
+    hours = int(os.environ.get("HINDI_HEADLINE_SYNC_HOURS", 72))
+    try:
+        conn_a = get_db_connection()
+        cur_a = conn_a.cursor()
+        cur_a.execute("SELECT id, rephrased_title FROM articles WHERE scraped_at >= ? AND +translated_hi = 1",
+                      (int(time.time()) - hours * 3600,))
+        current = {r[0]: (r[1] or "") for r in cur_a.fetchall()}
+        conn_a.close()
+        if not current:
+            return 0
+        _ensure_trans_schema()
+        conn_b = get_translation_db_connection()
+        cur_b = conn_b.cursor()
+        stale = []
+        ids = list(current)
+        for i in range(0, len(ids), 400):
+            chunk = ids[i:i + 400]
+            ph = ",".join("?" * len(chunk))
+            cur_b.execute(f"SELECT article_id, title_src FROM translations WHERE article_id IN ({ph}) "
+                          f"AND title_src IS NOT NULL AND hi_version = ?", (*chunk, core.PROMPT_VERSION))
+            stale += [aid for aid, src in cur_b.fetchall() if (src or "") != current.get(aid, "")]
+        for i in range(0, len(stale), 400):
+            chunk = stale[i:i + 400]
+            ph = ",".join("?" * len(chunk))
+            cur_b.execute(f"UPDATE translations SET hi_version = ? WHERE article_id IN ({ph})", (HEADLINE_STALE, *chunk))
+        conn_b.commit()
+        conn_b.close()
+        logging.info(f"Headline sync: {len(current)} recent translations checked, {len(stale)} queued for redo (headline changed).")
+        return len(stale)
+    except Exception as e:
+        logging.error(f"Headline sync failed (skipped this run): {e}")
+        return 0
+
+
 def _untranslated_ids(cur_a, shard, num_shards, since, until=None):
     """Untranslated articles scraped in [since, until). '+translated_hi' keeps SQLite off the
     (translated_hi, id) index, whose translated_hi = 0 branch holds ~90k old rows; the scraped_at
     index reads only the window. No ORDER BY in SQL: sorting there pushed the planner into a full
     table scan; we sort in Python."""
     sql = ("SELECT id FROM articles WHERE scraped_at >= ? " + ("AND scraped_at < ? " if until else "")
-           + "AND +translated_hi = 0 AND rephrased_article IS NOT NULL AND (id % ?) = ?")
+           + "AND +translated_hi = 0 AND rephrased_article IS NOT NULL AND rephrased_title IS NOT NULL AND (id % ?) = ?")
     args = [since] + ([until] if until else []) + [num_shards, shard]
     cur_a.execute(sql, args)
     return {r[0] for r in cur_a.fetchall()}
@@ -234,8 +278,8 @@ def _translate_one(translator, article_id, eng_headline, comp):
             c_b = get_translation_db_connection()
             cur_b_local = c_b.cursor()
             cur_b_local.execute(
-                "INSERT OR REPLACE INTO translations (article_id, rephrased_article_hi, rephrased_title_hi, headline_verified_hi, hi_version) VALUES (?, ?, ?, ?, ?)",
-                (article_id, comp_hi, hi_title, 1, core.PROMPT_VERSION))
+                "INSERT OR REPLACE INTO translations (article_id, rephrased_article_hi, rephrased_title_hi, headline_verified_hi, hi_version, title_src) VALUES (?, ?, ?, ?, ?, ?)",
+                (article_id, comp_hi, hi_title, 1, core.PROMPT_VERSION, eng_headline or ""))
             cur_b_local.execute("DELETE FROM translation_failures WHERE article_id = ?", (article_id,))
             c_b.commit()
             c_b.close()
@@ -494,7 +538,15 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
         logging.error(f"Check upsc_translations table failed: {e}")
         return False, False
 
+    # Walk this worker's notes newest -> oldest within the window, translating the ones not done yet.
+    # (It used to re-read only the newest batch and stop once that batch was done, so notes older than
+    # the newest ~10 per worker were never translated.) Ids come from idx_upsc_pub alone; full rows are
+    # fetched only for notes that still need translating.
     saved = 0
+    window_days = int(os.environ.get("HINDI_UPSC_WINDOW_DAYS", 120))
+    since = int(time.time()) - window_days * 86400
+    upper = None          # published_at of the oldest note seen so far
+    seen = set()          # ids already handled in this walk (translated, done before, or failed)
     while True:
         if deadline and time.time() >= deadline:
             logging.info("UPSC deadline reached — continuing in next run.")
@@ -503,22 +555,37 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
         try:
             conn_u = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
             cur_u = conn_u.cursor()
-            cur_u.execute(
-                "SELECT article_id, why_in_news, fact_box, prelims_pointers, mains_question "
-                "FROM upsc_articles WHERE (article_id % ?) = ? ORDER BY published_at DESC LIMIT ?",
-                (num_shards, shard, batch_size)
-            )
-            rows = cur_u.fetchall()
+            if upper is None:
+                cur_u.execute("SELECT article_id, published_at FROM upsc_articles WHERE published_at >= ? "
+                              "AND (article_id % ?) = ? ORDER BY published_at DESC LIMIT 500",
+                              (since, num_shards, shard))
+            else:
+                cur_u.execute("SELECT article_id, published_at FROM upsc_articles WHERE published_at >= ? "
+                              "AND published_at <= ? AND (article_id % ?) = ? ORDER BY published_at DESC LIMIT 500",
+                              (since, upper, num_shards, shard))
+            page = [r for r in cur_u.fetchall() if r[0] not in seen]
+            todo = [r[0] for r in page if r[0] not in done_ids][:batch_size]
+            rows = []
+            if todo:
+                ph = ",".join("?" * len(todo))
+                cur_u.execute(f"SELECT article_id, why_in_news, fact_box, prelims_pointers, mains_question "
+                              f"FROM upsc_articles WHERE article_id IN ({ph}) ORDER BY published_at DESC", todo)
+                rows = cur_u.fetchall()
             conn_u.close()
         except Exception as e:
             logging.error(f"Fetch UPSC batch failed: {e}")
             time.sleep(5)
             continue
 
-        untranslated = [r for r in rows if r[0] not in done_ids]
-        if not rows or not untranslated:
-            logging.info(f"All UPSC articles completed for worker {shard}/{num_shards}.")
+        if not page:
+            logging.info(f"All UPSC notes of the last {window_days} days are translated for worker {shard}/{num_shards}.")
             break
+        if not todo:
+            seen.update(r[0] for r in page)
+            upper = min(r[1] for r in page)
+            continue
+        seen.update(todo)   # a failed note is retried next run, not in a loop now
+        untranslated = rows
 
         for art_id, why_news, fact_box, prelims_json, mains_q in untranslated:
             if deadline and time.time() >= deadline:
@@ -789,6 +856,9 @@ def main():
 
     ok = True
     has_more = False
+
+    if shard == 0 and args.step == "all" and not args.test_run:
+        sync_headlines()
 
     # 1. Explicit CLI step override
     if args.step != "all":

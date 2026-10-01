@@ -170,6 +170,9 @@ jobs:
           else
             echo false > status/more_${{ matrix.shard }}
           fi
+          if grep -qE "Saved (ID|event|UPSC note)" pipeline_output.log; then
+            echo true > status/saved_${{ matrix.shard }}
+          fi
           grep -E '^articles_(saved|remaining)=' pipeline_output.log | tee -a $GITHUB_STEP_SUMMARY || true
 
       - name: Report shard status
@@ -214,6 +217,21 @@ jobs:
           pattern: more-*
           merge-multiple: true
           path: status
+      - name: Refresh the site's Hindi pages
+        # Only when this run translated something. The site refreshes just its Hindi caches
+        # (tag 'hi', at most every 2 hours); English pages are refreshed by the classifier.
+        env:
+          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+        run: |
+          if ! grep -qx true status/saved_* 2>/dev/null; then
+            echo "Nothing new translated - no refresh."; exit 0
+          fi
+          if [ -z "$REVALIDATE_SECRET" ]; then
+            echo "::warning::REVALIDATE_SECRET is not set in this repo - Hindi pages refresh only with the site's 4-hourly refresh."; exit 0
+          fi
+          curl -sS -m 60 -X POST "https://satyadheesh.in/api/revalidate?tag=hi&secret=${REVALIDATE_SECRET}" || echo "::warning::refresh call failed"
+          echo
+
       - name: Trigger next run if any shard has work left
         env:
           GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
