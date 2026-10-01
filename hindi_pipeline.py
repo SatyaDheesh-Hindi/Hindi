@@ -126,21 +126,51 @@ def _ensure_trans_schema():
             except Exception as e:  # another shard added it first
                 if "duplicate" not in str(e).lower():
                     raise
+    # Lets the redo list read only rows of OTHER versions instead of the whole table.
+    cur_b.execute("CREATE INDEX IF NOT EXISTS idx_translations_hi_version ON translations(hi_version)")
     conn_b.commit()
     conn_b.close()
 
 
 def _skip_ids():
-    """Articles this prompt version is finished with: translated by it, or given up on."""
+    """Articles this prompt version has given up on (failed MAX_FAILURE_ATTEMPTS times).
+    (Articles it already translated never reach the queue: untranslated ones come from
+    translated_hi = 0, redo ones only from OTHER versions. Reading every current translation
+    here cost ~15k rows per shard per run.)"""
     v = core.PROMPT_VERSION
     conn_b = get_translation_db_connection()
     cur_b = conn_b.cursor()
-    cur_b.execute("SELECT article_id FROM translations WHERE hi_version = ?", (v,))
-    done = {r[0] for r in cur_b.fetchall()}
+    done = set()
     cur_b.execute("SELECT article_id FROM translation_failures WHERE hi_version = ? AND attempts >= ?", (v, MAX_FAILURE_ATTEMPTS))
     done |= {r[0] for r in cur_b.fetchall()}
     conn_b.close()
     return done
+
+
+def _redo_ids(shard, num_shards):
+    """Articles translated (or failed) under an OLDER prompt version: read from the translation DB,
+    via idx_translations_hi_version ranges, so only other-version rows are read."""
+    v = core.PROMPT_VERSION
+    conn_b = get_translation_db_connection()
+    cur_b = conn_b.cursor()
+    cur_b.execute("SELECT article_id FROM translations WHERE hi_version IS NULL OR hi_version < ? OR hi_version > ?", (v, v))
+    ids = {r[0] for r in cur_b.fetchall()}
+    cur_b.execute("SELECT article_id FROM translation_failures WHERE hi_version IS NULL OR hi_version != ?", (v,))
+    ids |= {r[0] for r in cur_b.fetchall()}
+    conn_b.close()
+    return {i for i in ids if i % num_shards == shard}
+
+
+def _untranslated_ids(cur_a, shard, num_shards, since, until=None):
+    """Untranslated articles scraped in [since, until). '+translated_hi' keeps SQLite off the
+    (translated_hi, id) index, whose translated_hi = 0 branch holds ~90k old rows; the scraped_at
+    index reads only the window. No ORDER BY in SQL: sorting there pushed the planner into a full
+    table scan; we sort in Python."""
+    sql = ("SELECT id FROM articles WHERE scraped_at >= ? " + ("AND scraped_at < ? " if until else "")
+           + "AND +translated_hi = 0 AND rephrased_article IS NOT NULL AND (id % ?) = ?")
+    args = [since] + ([until] if until else []) + [num_shards, shard]
+    cur_a.execute(sql, args)
+    return {r[0] for r in cur_a.fetchall()}
 
 
 def _candidate_ids(shard, num_shards, skip, fresh_only=False, backlog_only=False):
@@ -149,6 +179,8 @@ def _candidate_ids(shard, num_shards, skip, fresh_only=False, backlog_only=False
     - fresh_only: articles from the last HINDI_FRESH_HOURS (default 48h), translated_hi = 0 only
     - backlog_only: older articles within 30-day window (scraped_at < fresh_cutoff) + redo articles
     - standard: all articles within HINDI_WINDOW_DAYS
+    Reads only the time window (index range) + other-version rows from the translation DB,
+    not the whole articles table per shard (was ~108k rows per query).
     """
     fresh_hours = int(os.environ.get("HINDI_FRESH_HOURS", 48))
     fresh_cutoff = int(time.time()) - fresh_hours * 3600
@@ -158,23 +190,13 @@ def _candidate_ids(shard, num_shards, skip, fresh_only=False, backlog_only=False
     conn_a = get_db_connection()
     cur_a = conn_a.cursor()
     if fresh_only:
-        cur_a.execute(
-            "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? "
-            "AND translated_hi = 0 AND scraped_at >= ? ORDER BY id DESC",
-            (num_shards, shard, fresh_cutoff))
+        ids = _untranslated_ids(cur_a, shard, num_shards, fresh_cutoff)
     elif backlog_only:
-        cur_a.execute(
-            "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? "
-            "AND ((translated_hi = 0 AND scraped_at < ? AND scraped_at >= ?) OR translated_hi IN (1, 2)) ORDER BY id DESC",
-            (num_shards, shard, fresh_cutoff, window_cutoff))
+        ids = _untranslated_ids(cur_a, shard, num_shards, window_cutoff, fresh_cutoff) | _redo_ids(shard, num_shards)
     else:
-        cur_a.execute(
-            "SELECT id FROM articles WHERE rephrased_article IS NOT NULL AND (id % ?) = ? "
-            "AND ((translated_hi = 0 AND scraped_at >= ?) OR translated_hi IN (1, 2)) ORDER BY id DESC",
-            (num_shards, shard, window_cutoff))
-    ids = [r[0] for r in cur_a.fetchall() if r[0] not in skip]
+        ids = _untranslated_ids(cur_a, shard, num_shards, window_cutoff) | _redo_ids(shard, num_shards)
     conn_a.close()
-    return ids
+    return sorted((i for i in ids if i not in skip), reverse=True)
 
 
 def _translate_one(translator, article_id, eng_headline, comp):
