@@ -22,6 +22,27 @@ print("by month scraped:", sorted(collections.Counter(dt.datetime.utcfromtimesta
 print("by category:", collections.Counter(m[2] for m in meta.values()).most_common(8))
 a.execute("SELECT id, name FROM sources"); src = dict(a.fetchall())
 print("by source:", collections.Counter(src.get(m[5]) for m in meta.values()).most_common(8))
+import ast
+sub = collections.Counter(); extra = collections.Counter(); miss = collections.Counter(); bad = []
+for _, _, e in rows:
+    if (e or "").startswith("body gate:"):
+        try:
+            d = ast.literal_eval(e.split(":", 1)[1].strip())
+        except Exception:
+            continue
+        fails = tuple(k for k in ("script_ok", "gap_ok", "number_ok", "entity_ok") if d.get(k) is False)
+        sub[fails] += 1
+        for n in d.get("numbers_extra", []): extra[n] += 1
+        for n in d.get("numbers_missing", []): miss[n] += 1
+        if d.get("bad_chars"): bad.append(d["bad_chars"])
+    elif (e or "").startswith("names:"):
+        sub[("names",)] += 1
+print("failing checks:", sub.most_common())
+print("extra numbers in Hindi:", extra.most_common(10))
+print("missing numbers:", miss.most_common(10))
+print("bad script samples:", bad[:40])
+names = [e.split(":", 1)[1].strip() for _, _, e in rows if (e or "").startswith("names:")]
+print("name gate entries:", names[:40])
 by = collections.defaultdict(list)
 for r in rows:
     by[kind(r[2])].append(r)
