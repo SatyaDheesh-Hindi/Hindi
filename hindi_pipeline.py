@@ -16,6 +16,7 @@ import logging
 import sqlite3
 import zlib
 import json
+import re
 import socket
 import subprocess
 
@@ -709,6 +710,158 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
     return True, False
 
 
+KIT_HI_GIVE_UP = 3   # translated_hi in upsc_kit: 0 = to do, 1 = done, -1/-2 = failed tries, -3 = given up
+KIT_ST_LABELS = {"only": "केवल {a}", "and_only": "केवल {a} और {b}", "all3": "{a}, {b} और {c}",
+                 "both": "1 और 2 दोनों", "neither": "न तो 1 और न ही 2"}
+
+
+def _kit_option_hi(opt):
+    """Statement-MCQ options are fixed patterns: written in Hindi directly, never sent to the model."""
+    o = opt.strip().lower()
+    m = re.match(r"^(\d) only$", o)
+    if m:
+        return KIT_ST_LABELS["only"].format(a=m.group(1))
+    m = re.match(r"^(\d) and (\d) only$", o)
+    if m:
+        return KIT_ST_LABELS["and_only"].format(a=m.group(1), b=m.group(2))
+    m = re.match(r"^(\d), (\d) and (\d)$", o)
+    if m:
+        return KIT_ST_LABELS["all3"].format(a=m.group(1), b=m.group(2), c=m.group(3))
+    if o.startswith("both"):
+        return KIT_ST_LABELS["both"]
+    if o.startswith("neither"):
+        return KIT_ST_LABELS["neither"]
+    return None
+
+
+def _kit_gate(en, hi):
+    """Short-text gates: Devanagari script, every number kept, no dropped-word gap."""
+    if not (hi or "").strip():
+        return "empty"
+    num_ok, missing, extra = core.number_gate(en, hi)
+    scr_ok, bad = core.script_gate(hi)
+    gap_ok, gap = core.gap_gate(hi)
+    if not num_ok:
+        return f"numbers {missing or ''}{extra or ''}"
+    if not scr_ok:
+        return f"script {bad}"
+    if not gap_ok:
+        return f"gap {gap}"
+    return None
+
+
+def translate_kit(translator, kit):
+    """Hindi study kit. Raises ValueError (with the failing field) if any piece fails its gate."""
+    def tr(text, style, field):
+        hi = translator.translate_upsc_field(text, style) if style else translator.en2hi_short(text)
+        err = _kit_gate(text, hi)
+        if err:
+            hi = translator.translate_upsc_field(text, style or "pointer")  # one more try in the fuller style
+            err = _kit_gate(text, hi)
+        if err:
+            raise ValueError(f"{field}: {err}")
+        return hi
+
+    mcq = json.loads(kit["mcq"]) if isinstance(kit["mcq"], str) else kit["mcq"]
+    facts = json.loads(kit["facts"]) if isinstance(kit["facts"], str) else kit["facts"]
+    out = {
+        "short_title": tr(kit["short_title"], None, "short_title"),
+        "takeaway": tr(kit["takeaway"], "why_in_news", "takeaway"),
+        "brief_lead": tr(kit["brief_lead"].rstrip(":"), None, "brief_lead").rstrip(":। ") + ":",
+        "brief_text": tr(kit["brief_text"], "pointer", "brief_text"),
+        "facts": [{"label": f["label"], "text": tr(f["text"], "pointer", "fact")} for f in facts],
+    }
+    m = {"type": mcq["type"], "answer": mcq["answer"], "question": tr(mcq["question"], "pointer", "question"),
+         "explanation": tr(mcq["explanation"], "pointer", "explanation")}
+    if mcq["type"] == "statements":
+        m["statements"] = [tr(x, "pointer", "statement") for x in mcq["statements"]]
+        m["options"] = [_kit_option_hi(o) or o for o in mcq["options"]]
+    else:
+        m["statements"] = None
+        m["options"] = [tr(o, None, "option") for o in mcq["options"]]
+        if len({x.strip() for x in m["options"]}) < 4:
+            raise ValueError("options: two translate to the same text")
+    out["mcq"] = m
+    return out
+
+
+def process_upsc_kit(translator, shard, num_shards, batch_size, deadline=None):
+    """Hindi for the study kit (satya-upsc-reports): headline, takeaway, In-brief line, facts and MCQ.
+    Only kits that passed the blind MCQ check (kit-v3+) of the last 30 days; written to
+    upsc_kit_translations in the translation DB, progress kept in upsc_kit.translated_hi."""
+    if not os.environ.get('SATYA_UPSC_DB_URL'):
+        return True, False
+    logging.info(f"--- UPSC study kit (worker {shard}/{num_shards}) ---")
+    try:
+        c = get_translation_db_connection()
+        c.cursor().execute("""CREATE TABLE IF NOT EXISTS upsc_kit_translations (
+            article_id INTEGER PRIMARY KEY, short_title_hi TEXT, takeaway_hi TEXT, brief_lead_hi TEXT, brief_text_hi TEXT,
+            facts_hi TEXT, mcq_hi TEXT, prompt_version TEXT, translated_at INTEGER)""")
+        c.commit()
+        c.close()
+        cu = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+        cu.cursor().execute("CREATE INDEX IF NOT EXISTS idx_kit_hi ON upsc_kit(translated_hi)")
+        cu.commit()
+        cu.close()
+    except Exception as e:
+        logging.info(f"Study kit not available yet ({e}); skipping.")
+        return True, False
+
+    since = int(time.time()) - int(os.environ.get("HINDI_KIT_WINDOW_DAYS", 30)) * 86400
+    failed, saved = set(), 0
+    while True:
+        if deadline and time.time() >= deadline:
+            return True, True
+        try:
+            cu = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+            cur = cu.cursor()
+            skip = list(failed)[:500]
+            cur.execute(
+                "SELECT k.article_id, k.short_title, k.takeaway, k.brief_lead, k.brief_text, k.facts, k.mcq, k.prompt_version, "
+                "k.translated_hi FROM upsc_kit k JOIN upsc_articles a ON a.article_id = k.article_id "
+                "WHERE k.status = 'done' AND k.translated_hi <= 0 AND k.translated_hi > ? AND k.prompt_version >= 'kit-v3' "
+                "AND a.published_at >= ? AND (k.article_id % ?) = ? "
+                + (f"AND k.article_id NOT IN ({','.join('?' * len(skip))}) " if skip else "")
+                + "ORDER BY a.published_at DESC LIMIT ?",
+                (-KIT_HI_GIVE_UP, since, num_shards, shard, *skip, batch_size))
+            rows = cur.fetchall()
+            cu.close()
+        except Exception as e:
+            logging.info(f"Study kit query failed ({e}); skipping this run.")
+            return True, False
+        if not rows:
+            logging.info(f"Study kit: nothing left for worker {shard}/{num_shards} (saved {saved}).")
+            return True, False
+        for aid, st, tk, bl, bt, facts, mcq, pv, state in rows:
+            if deadline and time.time() >= deadline:
+                return True, True
+            try:
+                hi = translate_kit(translator, {"short_title": st, "takeaway": tk, "brief_lead": bl, "brief_text": bt,
+                                                "facts": facts, "mcq": mcq})
+                c = get_translation_db_connection()
+                c.cursor().execute(
+                    "INSERT OR REPLACE INTO upsc_kit_translations (article_id, short_title_hi, takeaway_hi, brief_lead_hi, "
+                    "brief_text_hi, facts_hi, mcq_hi, prompt_version, translated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (aid, hi["short_title"], hi["takeaway"], hi["brief_lead"], hi["brief_text"],
+                     json.dumps(hi["facts"], ensure_ascii=False), json.dumps(hi["mcq"], ensure_ascii=False), pv, int(time.time())))
+                c.commit()
+                c.close()
+                new_state = 1
+                saved += 1
+                logging.info(f"Saved UPSC kit ID {aid}")
+            except Exception as ex:
+                failed.add(aid)
+                new_state = (state or 0) - 1
+                logging.warning(f"UPSC kit ID {aid} failed ({ex}); try {-new_state}/{KIT_HI_GIVE_UP}")
+            try:
+                cu = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+                cu.cursor().execute("UPDATE upsc_kit SET translated_hi = ? WHERE article_id = ?", (new_state, aid))
+                cu.commit()
+                cu.close()
+            except Exception as ex:
+                logging.warning(f"Could not record kit state for {aid}: {ex}")
+
+
 # ==============================================================================
 # --- ENTITIES (shard 0 only) ---
 # ==============================================================================
@@ -950,6 +1103,8 @@ def main():
             ok, has_more = process_entities(translator(), deadline=deadline)
         elif args.step == "upsc":
             r, has_more = process_upsc(translator(), shard, num_shards, batch, deadline); ok = ok and r
+            r2, more2 = process_upsc_kit(translator(), shard, num_shards, batch, deadline); ok = ok and r2
+            has_more = has_more or more2
 
     # 2. Production 20-shard architecture
     elif num_shards >= 20:
@@ -975,6 +1130,7 @@ def main():
             steps = [
                 ("fresh articles", lambda: process_articles(translator(), worker_shard, worker_num, batch, deadline, fresh_only=True)),
                 ("UPSC notes", lambda: process_upsc(translator(), worker_shard, worker_num, batch, deadline)),
+                ("UPSC study kit", lambda: process_upsc_kit(translator(), worker_shard, worker_num, batch, deadline)),
                 ("timelines", lambda: process_timelines(translator(), worker_shard, worker_num, batch, deadline)),
                 ("backlog articles", lambda: process_articles(translator(), shard, num_shards, batch, deadline, backlog_only=True)),
             ]
