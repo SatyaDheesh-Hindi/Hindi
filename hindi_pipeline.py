@@ -317,6 +317,11 @@ def _translate_one(translator, article_id, eng_headline, comp, prior=None):
     ok_title, _ = core.script_gate(hi_title)
     if not hi_title or not ok_title:
         hi_title = hi_body.split("।")[0].strip()[:90]
+    elif os.environ.get("HINDI_HEADLINE_CHECK", "1") == "1":
+        # Meaning check: the Hindi headline must say what the English one says (no inverted claims)
+        hi_title, how = translator.verified_headline(eng_headline, hi_title, hi_body)
+        if how != "ok":
+            logging.info(f"Headline {article_id}: {how}")
 
     comp_hi = zlib.compress(hi_body.encode('utf-8'))
     for attempt in range(3):
@@ -611,6 +616,13 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
                 translated_at INTEGER
             )
         """)
+        cur_b.execute("PRAGMA table_info(upsc_translations)")
+        if "title_hi" not in [r[1] for r in cur_b.fetchall()]:
+            try:
+                cur_b.execute("ALTER TABLE upsc_translations ADD COLUMN title_hi TEXT")
+            except Exception as e:  # another worker added it first
+                if "duplicate" not in str(e).lower():
+                    raise
         conn_b.commit()
         conn_b.close()
 
@@ -689,7 +701,10 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
                 conn_b = get_translation_db_connection()
                 cur_b = conn_b.cursor()
                 cur_b.execute(
-                    "INSERT OR REPLACE INTO upsc_translations (article_id, why_in_news_hi, fact_box_hi, prelims_pointers_hi, mains_question_hi, translated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO upsc_translations (article_id, why_in_news_hi, fact_box_hi, prelims_pointers_hi, mains_question_hi, translated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(article_id) DO UPDATE SET why_in_news_hi = excluded.why_in_news_hi, "
+                    "fact_box_hi = excluded.fact_box_hi, prelims_pointers_hi = excluded.prelims_pointers_hi, "
+                    "mains_question_hi = excluded.mains_question_hi, translated_at = excluded.translated_at",  # keeps title_hi
                     (art_id, why_hi, fact_hi, json.dumps(pointers_hi, ensure_ascii=False), mains_hi, int(time.time()))
                 )
                 conn_b.commit()
@@ -783,6 +798,126 @@ def translate_kit(translator, kit):
             raise ValueError("options: two translate to the same text")
     out["mcq"] = m
     return out
+
+
+TITLE_HI_GIVE_UP = 3
+
+
+def process_upsc_titles(translator, shard, num_shards, batch_size, deadline=None):
+    """Hindi headline for UPSC notes whose news article has no Hindi headline (its translation failed or
+    has not run). Written to upsc_translations.title_hi; the site and the reports use it only when
+    translations.rephrased_title_hi is missing. Progress in upsc_articles.title_hi_state:
+    0 = not checked, 1 = has a Hindi headline, -1..-3 = failed tries."""
+    if not os.environ.get('SATYA_UPSC_DB_URL'):
+        return True, False
+    logging.info(f"--- UPSC headlines (worker {shard}/{num_shards}) ---")
+    try:
+        cu = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+        cur = cu.cursor()
+        cur.execute("PRAGMA table_info(upsc_articles)")
+        if "title_hi_state" not in [r[1] for r in cur.fetchall()]:
+            try:
+                cur.execute("ALTER TABLE upsc_articles ADD COLUMN title_hi_state INTEGER DEFAULT 0")
+            except Exception as e:
+                if "duplicate" not in str(e).lower():
+                    raise
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_upsc_title_hi ON upsc_articles(title_hi_state, published_at DESC)")
+        cu.commit()
+        cu.close()
+    except Exception as e:
+        logging.info(f"UPSC headline setup failed ({e}); skipping.")
+        return True, False
+
+    since = int(time.time()) - int(os.environ.get("HINDI_UPSC_WINDOW_DAYS", 120)) * 86400
+    failed, saved, had = set(), 0, 0
+
+    def set_state(pairs):
+        if not pairs:
+            return
+        cu = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+        c = cu.cursor()
+        for aid, st in pairs:
+            c.execute("UPDATE upsc_articles SET title_hi_state = ? WHERE article_id = ?", (st, aid))
+        cu.commit()
+        cu.close()
+
+    while True:
+        if deadline and time.time() >= deadline:
+            return True, True
+        try:
+            cu = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+            cur = cu.cursor()
+            skip = list(failed)[:500]
+            cur.execute(
+                "SELECT article_id, title_hi_state FROM upsc_articles WHERE title_hi_state <= 0 AND title_hi_state > ? "
+                "AND translated_hi = 1 AND published_at >= ? AND (article_id % ?) = ? "
+                + (f"AND article_id NOT IN ({','.join('?' * len(skip))}) " if skip else "")
+                + "ORDER BY published_at DESC LIMIT ?",
+                (-TITLE_HI_GIVE_UP, since, num_shards, shard, *skip, batch_size))
+            rows = cur.fetchall()
+            cu.close()
+        except Exception as e:
+            logging.info(f"UPSC headline query failed ({e}); skipping this run.")
+            return True, False
+        if not rows:
+            logging.info(f"UPSC headlines: nothing left for worker {shard}/{num_shards} "
+                         f"(translated {saved}, already had Hindi {had}).")
+            return True, False
+        ids = [r[0] for r in rows]
+        ph = ",".join("?" * len(ids))
+        try:
+            ct = get_translation_db_connection()
+            c = ct.cursor()
+            c.execute(f"SELECT article_id, rephrased_title_hi FROM translations WHERE article_id IN ({ph})", ids)
+            news_hi = {r[0]: r[1] for r in c.fetchall() if r[1] and core.script_gate(r[1])[0]}
+            c.execute(f"SELECT article_id, title_hi, why_in_news_hi FROM upsc_translations WHERE article_id IN ({ph})", ids)
+            note_hi = {r[0]: (r[1], r[2]) for r in c.fetchall()}
+            ct.close()
+            cm = get_db_connection()
+            c = cm.cursor()
+            c.execute(f"SELECT id, rephrased_title, title FROM articles WHERE id IN ({ph})", ids)
+            en_title = {r[0]: (r[1] or r[2] or "").strip() for r in c.fetchall()}
+            cm.close()
+        except Exception as e:
+            logging.warning(f"UPSC headline lookup failed ({e}); retrying next run.")
+            return True, True
+
+        done = [(aid, 1) for aid in ids if aid in news_hi or (note_hi.get(aid) or (None,))[0]]
+        had += len(done)
+        set_state(done)
+        for aid, state in rows:
+            if aid in news_hi or (note_hi.get(aid) or (None,))[0]:
+                continue
+            if deadline and time.time() >= deadline:
+                return True, True
+            en = en_title.get(aid, "")
+            why_hi = (note_hi.get(aid) or (None, ""))[1] or ""
+            try:
+                if not en:
+                    raise ValueError("no English headline")
+                hi = translator.en2hi_short(en)
+                if not hi or not core.script_gate(hi)[0] or not core.number_gate(en, hi)[0]:
+                    hi = ""
+                hi, how = translator.verified_headline(en, hi, why_hi) if hi else ("", "")
+                if not hi and why_hi:
+                    hi, how = why_hi.split("।")[0].strip()[:90], "fallback: headline failed the gates"
+                if not hi:
+                    raise ValueError("no usable Hindi headline")
+                ct = get_translation_db_connection()
+                ct.cursor().execute("UPDATE upsc_translations SET title_hi = ? WHERE article_id = ?", (hi, aid))
+                ct.commit()
+                ct.close()
+                new_state = 1
+                saved += 1
+                logging.info(f"UPSC headline {aid}: {how}")
+            except Exception as ex:
+                failed.add(aid)
+                new_state = (state or 0) - 1
+                logging.warning(f"UPSC headline {aid} failed ({ex}); try {-new_state}/{TITLE_HI_GIVE_UP}")
+            try:
+                set_state([(aid, new_state)])
+            except Exception as ex:
+                logging.warning(f"Could not record headline state for {aid}: {ex}")
 
 
 def process_upsc_kit(translator, shard, num_shards, batch_size, deadline=None):
@@ -1104,7 +1239,8 @@ def main():
         elif args.step == "upsc":
             r, has_more = process_upsc(translator(), shard, num_shards, batch, deadline); ok = ok and r
             r2, more2 = process_upsc_kit(translator(), shard, num_shards, batch, deadline); ok = ok and r2
-            has_more = has_more or more2
+            r3, more3 = process_upsc_titles(translator(), shard, num_shards, batch, deadline); ok = ok and r3
+            has_more = has_more or more2 or more3
 
     # 2. Production 20-shard architecture
     elif num_shards >= 20:
@@ -1131,6 +1267,7 @@ def main():
                 ("fresh articles", lambda: process_articles(translator(), worker_shard, worker_num, batch, deadline, fresh_only=True)),
                 ("UPSC notes", lambda: process_upsc(translator(), worker_shard, worker_num, batch, deadline)),
                 ("UPSC study kit", lambda: process_upsc_kit(translator(), worker_shard, worker_num, batch, deadline)),
+                ("UPSC headlines", lambda: process_upsc_titles(translator(), worker_shard, worker_num, batch, deadline)),
                 ("timelines", lambda: process_timelines(translator(), worker_shard, worker_num, batch, deadline)),
                 ("backlog articles", lambda: process_articles(translator(), shard, num_shards, batch, deadline, backlog_only=True)),
             ]

@@ -48,6 +48,8 @@ def main():
         md += [f"---\n### {r['id']} · {r['category']} · {r['seconds']}s",
                f"**EN:** {r['en_title']}\n\n> {r['en_body']}\n",
                f"**New:** **{r['new']['headline']}**\n\n> {r['new']['body']}\n"]
+        if r["new"].get("headline_check", "ok") != "ok":
+            md += [f"_Headline check: {r['new']['headline_check']} (was: {r['new'].get('headline_before_check', '')})_\n"]
         if r["new"].get("proofread"):
             md += [f"_Proofread: {r['new']['proofread']}_\n"]
         if r["new"].get("draft"):

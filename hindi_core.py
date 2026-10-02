@@ -299,6 +299,20 @@ MODEL_REPO = os.environ.get("HINDI_MODEL_REPO", "unsloth/gemma-4-12b-it-GGUF")
 MODEL_FILE = os.environ.get("HINDI_MODEL_FILE", "gemma-4-12b-it-Q4_K_M.gguf")
 EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
 NAMES_PATH = os.path.join(HERE, "prompts", "names_hi.json")
+TERMS_PATH = os.path.join(HERE, "prompts", "terms_hi.json")
+
+HEADLINE_CHECK = """Compare an English news headline with its Hindi version. Do they say the same thing?
+Check who does what to whom, direction and negation (rejects / approves, halts / imposes, rises / falls, not),
+places, numbers and the main subject. Ignore style, word order and English words written in Devanagari.
+Reply with JSON only: {"same": true or false, "problem": "<what differs, in English; empty if same>"}"""
+
+
+def load_terms(path=TERMS_PATH):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return dict(json.load(f).get("terms") or {})
+    except Exception:
+        return {}
 # Reference tokenizer: the vocab embedded in Gemma 4 GGUFs decodes many Devanagari tokens
 # ("मुख्यमंत्री", " डिपार्टमेंट" ...) to empty strings, so prompts are encoded and outputs
 # decoded with the Hugging Face tokenizer; llama.cpp only runs the model on token IDs.
@@ -692,6 +706,7 @@ class Translator:
         fixed = getattr(self, "_surname_fixed", set())
         binding = [(e, h) for e, h in names if known.get(e) == h or e in fixed]
         msgs = self._article_messages(title, text, names)
+        msgs[-1]["content"] += self._terms_hint(self.term_pairs(f"{title}\n{text}"))  # CDS != Army chief
         if guidance:
             msgs[-1]["content"] += "\n\n" + guidance
         budget = min(1400, 300 + len(text))
@@ -755,6 +770,49 @@ class Translator:
     def en2hi(self, text):
         return self.write_article("", text)["body"]
 
+    def term_pairs(self, text):
+        """Official posts/terms in `text` that have one correct Hindi form (prompts/terms_hi.json)."""
+        terms = getattr(self, "_terms", None)
+        if terms is None:
+            terms = self._terms = load_terms()
+        return [(e, h) for e, h in terms.items() if re.search(r"\b" + re.escape(e) + r"\b", text or "", re.I)]
+
+    @staticmethod
+    def _terms_hint(pairs, strict=False):
+        if not pairs:
+            return ""
+        lead = "You MUST use these Hindi forms" if strict else "Use these Hindi forms for official posts and terms"
+        return f"\n\n{lead}: " + "; ".join(f"{e} = {h}" for e, h in pairs)
+
+    def headline_same(self, en, hi):
+        """(same_meaning, problem) for an English headline and its Hindi version (one short call)."""
+        raw = self._chat([{"role": "user", "content": f"{HEADLINE_CHECK}\n\nEnglish: {en}\nHindi: {hi}"}], 90, temperature=0.0)
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        try:
+            d = json.loads(m.group(0)) if m else {}
+        except ValueError:
+            d = {}
+        if "same" not in d:
+            return True, ""  # unreadable verdict: don't block on the checker itself
+        return bool(d.get("same")), str(d.get("problem") or "")[:160]
+
+    def verified_headline(self, en, hi, body_hi=""):
+        """Keep the Hindi headline only if it says what the English one says; otherwise translate the headline
+        on its own and check again; last resort, the first sentence of the (gated) Hindi body.
+        Returns (headline, how) with how in ok / redone / fallback / skip."""
+        if not (en or "").strip() or not (hi or "").strip():
+            return hi, "skip"
+        same, problem = self.headline_same(en, hi)
+        if same:
+            return hi, "ok"
+        alt = self.en2hi_short(en)
+        if alt and script_gate(alt)[0] and number_gate(en, alt)[0]:
+            same2, _ = self.headline_same(en, alt)
+            if same2:
+                return alt, f"redone: {problem}"
+        first = (body_hi or "").split("।")[0].strip()[:90]
+        return (first or hi), f"fallback: {problem}"
+
     def translate_upsc_field(self, text, field_type):
         """Translates UPSC fields with academic standards and sufficient token budget."""
         text = re.sub(r"\*\*", "", (text or "").strip())
@@ -768,11 +826,16 @@ class Translator:
             "mains_q": (UPSC_MAINS_STYLE, 300),
         }
         style_prompt, max_toks = style_map.get(field_type, (UPSC_FACT_STYLE, 350))
-        msgs = [{"role": "user", "content": style_prompt + f"\n\nSource text:\n{text}"}]
-        raw = self._chat(msgs, max_toks, temperature=0.15)
-        raw = re.sub(r"\*\*", "", raw).strip()
-        lines = [line.strip() for line in raw.splitlines() if line.strip() and not re.match(r"^(?:hindi|translation|उत्तर|अनुवाद)\s*:\s*", line, re.I)]
-        res = " ".join(lines) if field_type in ("fact_box", "why_in_news") else (lines[0] if lines else "")
+        pairs = self.term_pairs(text)
+        res = ""
+        for strict in (False, True):
+            msgs = [{"role": "user", "content": style_prompt + self._terms_hint(pairs, strict) + f"\n\nSource text:\n{text}"}]
+            raw = self._chat(msgs, max_toks, temperature=0.15)
+            raw = re.sub(r"\*\*", "", raw).strip()
+            lines = [line.strip() for line in raw.splitlines() if line.strip() and not re.match(r"^(?:hindi|translation|उत्तर|अनुवाद)\s*:\s*", line, re.I)]
+            res = " ".join(lines) if field_type in ("fact_box", "why_in_news") else (lines[0] if lines else "")
+            if all(h in res for _, h in pairs):
+                break  # every official term in its standard Hindi form (e.g. CDS is not 'थल सेना प्रमुख')
         return fix_initials(trim_wrapping_quotes(res))
 
     def translate_milestone(self, text):
@@ -807,7 +870,7 @@ class Translator:
             msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + ex["en"]})
             msgs.append({"role": "assistant", "content": ex["hi"]})
             first = False
-        msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + text})
+        msgs.append({"role": "user", "content": (SHORT_STYLE + "\n\n" if first else "") + text + self._terms_hint(self.term_pairs(text))})
         out = self._chat(msgs, 150).replace("**", "").strip().splitlines()
         res = out[0] if out else ""
         return fix_initials(trim_wrapping_quotes(res)).rstrip("।. ")

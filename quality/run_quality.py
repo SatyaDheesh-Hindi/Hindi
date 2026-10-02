@@ -57,6 +57,11 @@ def main():
         try:
             out = t.write_article(title, en)
             err = None
+            if out.get("headline") and core.script_gate(out["headline"])[0]:
+                h, how = t.verified_headline(title, out["headline"], out["body"])  # same check as the service
+                out["headline_check"] = how
+                if how != "ok":
+                    out["headline_before_check"], out["headline"] = out["headline"], h
         except Exception as e:
             out, err = {"headline": "", "body": "", "attempts": 0, "missing_numbers": []}, str(e)[:300]
         secs = round(time.time() - t0, 1)
