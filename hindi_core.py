@@ -301,10 +301,13 @@ EXAMPLES_PATH = os.path.join(HERE, "prompts", "hindi_examples.json")
 NAMES_PATH = os.path.join(HERE, "prompts", "names_hi.json")
 TERMS_PATH = os.path.join(HERE, "prompts", "terms_hi.json")
 
-HEADLINE_CHECK = """Compare an English news headline with its Hindi version. Do they say the same thing?
-Check who does what to whom, direction and negation (rejects / approves, halts / imposes, rises / falls, not),
-places, numbers and the main subject. Ignore style, word order and English words written in Devanagari.
-Reply with JSON only: {"same": true or false, "problem": "<what differs, in English; empty if same>"}"""
+HEADLINE_CHECK = """An English news headline and the Hindi headline written for the same article. Is the Hindi headline WRONG?
+It is wrong only if it: contradicts the English; gets who did what to whom wrong; flips a negation or direction
+(rejects / approves, halts / imposes, rises / falls, denies / admits); changes a number, place or person;
+or leaves out the main claim (for two claims joined by "as" / "while", both are main).
+It is NOT wrong if it adds details from the article (a death toll, a place, a name), drops a minor detail or source
+name, reports a statement as "said", or differs in style, word order or English words written in Devanagari.
+Reply with JSON only: {"same": true if not wrong else false, "problem": "<the error, in English; empty if not wrong>"}"""
 
 
 def load_terms(path=TERMS_PATH):
@@ -806,7 +809,8 @@ class Translator:
         if same:
             return hi, "ok"
         alt = self.en2hi_short(en)
-        if alt and script_gate(alt)[0] and number_gate(en, alt)[0]:
+        latin = lambda t: len(re.findall(r"\b[a-z][A-Za-z]{2,}\b|\b[A-Z][a-z]{2,}\b", t or ""))  # not acronyms
+        if alt and script_gate(alt)[0] and number_gate(en, alt)[0] and latin(alt) <= latin(hi):
             same2, _ = self.headline_same(en, alt)
             if same2:
                 return alt, f"redone: {problem}"
