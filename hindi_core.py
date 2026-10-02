@@ -68,7 +68,7 @@ def apply_glossary(text, glossary=None):
 # ---------------------------------------------------------------------------
 # Verification gates
 # ---------------------------------------------------------------------------
-NUM_RE = re.compile(r'\d+(?:[.,]\d+)?')
+NUM_RE = re.compile(r'\d+(?:[.,]\d+)*')  # whole groups: 2,50,000 and 250,000 both -> 250000
 
 def _numbers(text):
     out = []
@@ -581,6 +581,26 @@ def name_gate(names, hi):
     return (not missing), missing
 
 
+def rescue_guidance(last_error):
+    """Extra instructions for the last attempt at an article whose Hindi was rejected before,
+    pointing at what the gates caught (the gates themselves stay the same)."""
+    e = (last_error or "").lower()
+    tips = []
+    if "script_ok': false" in e:
+        tips.append("Write every name and word fully in Devanagari. Never put English letters inside a Hindi word; "
+                    "an abbreviation such as AI, IPO or NCR may stay in English letters only as a separate word.")
+    if "gap_ok': false" in e:
+        tips.append("Do not leave out any word: every के, का, की, ने and को must have its noun or name right before it. "
+                    "Write the full name again instead of dropping it.")
+    if "number_ok': false" in e:
+        tips.append("Write every number and date exactly as in the English, in digits.")
+    if e.startswith("names"):
+        tips.append("Use the name spellings given above exactly.")
+    tips.append("Prefer short, complete sentences.")
+    return ("An earlier Hindi version of this article was rejected by our checks. Write it again carefully:\n- "
+            + "\n- ".join(tips))
+
+
 class Translator:
     """Gemma 4 12B (GGUF) Hindi writer. Keeps the old method names so the pipeline
     works unchanged: en2hi (body), en2hi_short (headline/milestone/role), hi2en (unused)."""
@@ -652,10 +672,12 @@ class Translator:
         self._surname_fixed = fixed
         return merge_known_names(names, getattr(self, "known_names", {}), body)
 
-    def write_article(self, title, body):
+    def write_article(self, title, body, guidance=None):
         """-> {"headline", "body", "attempts", "missing_numbers", "names", "missing_names"}.
         1) name glossary (short call), 2) rewrite using those spellings, 3) at most one
-        corrective retry for missing numbers and/or names."""
+        corrective retry for missing numbers and/or names.
+        guidance: extra instructions for a rescue attempt (an article whose earlier versions
+        were rejected by the gates); also written a little less deterministically."""
         text = re.sub(r"\*\*", "", body or "").strip()
         title = re.sub(r"\*\*", "", title or "").strip()
         try:
@@ -663,16 +685,24 @@ class Translator:
         except Exception as e:
             logging.warning(f"name glossary failed: {e}")
             names = []
+        # Only curated spellings (prompts/names_hi.json) and surname fixes are enforced: the model's
+        # own guesses for other terms ("The United Nations = द यूनाइटेड नेशंस", "Parliament = संसद")
+        # rejected correct translations that used the proper or an inflected word.
+        known = getattr(self, "known_names", {})
+        fixed = getattr(self, "_surname_fixed", set())
+        binding = [(e, h) for e, h in names if known.get(e) == h or e in fixed]
         msgs = self._article_messages(title, text, names)
+        if guidance:
+            msgs[-1]["content"] += "\n\n" + guidance
         budget = min(1400, 300 + len(text))
-        raw = self._chat(msgs, budget)
+        raw = self._chat(msgs, budget, temperature=0.4 if guidance else 0.3)
         res = self._parse_article(raw)
         fix = lambda x: fix_initials(trim_wrapping_quotes(x))
         post = lambda r: {"headline": fix(r.get("headline")).rstrip("।. "), "body": fix(r.get("body"))}
         out = post(res)
         attempts = 1
         n_ok, missing, _ = number_gate(text, out["body"])
-        nm_ok, missing_names = name_gate(names, out["body"])
+        nm_ok, missing_names = name_gate(binding, out["body"])
         if not (n_ok and nm_ok):
             ask = []
             if not n_ok:
@@ -685,7 +715,7 @@ class Translator:
             out = post(self._parse_article(raw))
             attempts = 2
             n_ok, missing, _ = number_gate(text, out["body"])
-            nm_ok, missing_names = name_gate(names, out["body"])
+            nm_ok, missing_names = name_gate(binding, out["body"])
         out.update({"attempts": attempts, "missing_numbers": [] if n_ok else missing,
                     "names": [f"{e} = {h}" for e, h in names], "missing_names": missing_names})
 
@@ -695,9 +725,6 @@ class Translator:
             try:
                 # Only the curated spellings (prompts/names_hi.json) bind the editor; the model's own
                 # guesses (e.g. Doshi -> दोषी) are exactly what it should be free to correct.
-                known = getattr(self, "known_names", {})
-                fixed = getattr(self, "_surname_fixed", set())
-                binding = [(e, h) for e, h in names if known.get(e) == h or e in fixed]
                 ed = self.proofread(title, text, out, binding, budget, fix)
                 e_ok, _ = verify(text, ed["body"], is_gemma=True)
                 e_names_ok, _ = name_gate(binding, ed["body"])

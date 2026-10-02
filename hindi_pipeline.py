@@ -29,7 +29,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
-MAX_FAILURE_ATTEMPTS = 3
+MAX_FAILURE_ATTEMPTS = 3     # normal attempts
+RESCUE_ATTEMPTS = 1          # then one more with a prompt aimed at what the gates rejected
+GIVE_UP_AFTER = MAX_FAILURE_ATTEMPTS + RESCUE_ATTEMPTS
 
 # ==============================================================================
 # --- CONFIG / ENV ---
@@ -96,7 +98,7 @@ def record_failure(cur_b, conn_b, conn_a, article_id, msg):
             r = cur_b_local.fetchone()
             c_b.close()
 
-            if r and r[0] >= MAX_FAILURE_ATTEMPTS:
+            if r and r[0] >= GIVE_UP_AFTER:
                 try:
                     c_a = get_db_connection()
                     cur_a_local = c_a.cursor()
@@ -142,7 +144,7 @@ def _skip_ids():
     conn_b = get_translation_db_connection()
     cur_b = conn_b.cursor()
     done = set()
-    cur_b.execute("SELECT article_id FROM translation_failures WHERE hi_version = ? AND attempts >= ?", (v, MAX_FAILURE_ATTEMPTS))
+    cur_b.execute("SELECT article_id FROM translation_failures WHERE hi_version = ? AND attempts >= ?", (v, GIVE_UP_AFTER))
     done |= {r[0] for r in cur_b.fetchall()}
     conn_b.close()
     return done
@@ -160,6 +162,44 @@ def _redo_ids(shard, num_shards):
     ids |= {r[0] for r in cur_b.fetchall()}
     conn_b.close()
     return {i for i in ids if i % num_shards == shard}
+
+
+def retry_given_up_once(marker="retry-2026-10-02"):
+    """One-time: articles given up on (3 failures) before the gate fixes of 2 Oct (Indian number
+    format, hyphenated English terms, names gate on curated spellings only) get attempts reset
+    to 2: one normal attempt under the current gates, then the rescue attempt."""
+    try:
+        conn_b = get_translation_db_connection()
+        cur_b = conn_b.cursor()
+        cur_b.execute("CREATE TABLE IF NOT EXISTS hindi_meta (key TEXT PRIMARY KEY, value TEXT)")
+        cur_b.execute("SELECT value FROM hindi_meta WHERE key = ?", (marker,))
+        if cur_b.fetchone():
+            conn_b.close()
+            return 0
+        cur_b.execute("SELECT article_id FROM translation_failures WHERE hi_version = ? AND attempts >= ?",
+                      (core.PROMPT_VERSION, MAX_FAILURE_ATTEMPTS))
+        ids = [r[0] for r in cur_b.fetchall()]
+        for i in range(0, len(ids), 400):
+            chunk = ids[i:i + 400]
+            ph = ",".join("?" * len(chunk))
+            cur_b.execute(f"UPDATE translation_failures SET attempts = ? WHERE article_id IN ({ph})", (MAX_FAILURE_ATTEMPTS - 1, *chunk))
+        conn_b.commit()
+        conn_a = get_db_connection()
+        cur_a = conn_a.cursor()
+        for i in range(0, len(ids), 400):
+            chunk = ids[i:i + 400]
+            ph = ",".join("?" * len(chunk))
+            cur_a.execute(f"UPDATE articles SET translated_hi = 0 WHERE id IN ({ph}) AND translated_hi = 2", chunk)
+        conn_a.commit()
+        conn_a.close()
+        cur_b.execute("INSERT OR REPLACE INTO hindi_meta (key, value) VALUES (?, ?)", (marker, str(int(time.time()))))
+        conn_b.commit()
+        conn_b.close()
+        logging.info(f"One-time retry: {len(ids)} given-up articles re-queued (attempts reset to {MAX_FAILURE_ATTEMPTS - 1}).")
+        return len(ids)
+    except Exception as e:
+        logging.error(f"One-time retry reset failed (will try next run): {e}")
+        return 0
 
 
 HEADLINE_STALE = "headline-changed"
@@ -243,7 +283,8 @@ def _candidate_ids(shard, num_shards, skip, fresh_only=False, backlog_only=False
     return sorted((i for i in ids if i not in skip), reverse=True)
 
 
-def _translate_one(translator, article_id, eng_headline, comp):
+def _translate_one(translator, article_id, eng_headline, comp, prior=None):
+    """prior = (attempts, last_error) of this prompt version's earlier failures, if any."""
     try:
         eng_summary = zlib.decompress(comp).decode('utf-8')
     except (zlib.error, TypeError, UnicodeDecodeError) as ze:
@@ -252,7 +293,11 @@ def _translate_one(translator, article_id, eng_headline, comp):
         return False
 
     # 1. Write headline + body together (one call, whole article, style examples)
-    out = translator.write_article(eng_headline, eng_summary)
+    rescue = bool(prior and prior[0] >= MAX_FAILURE_ATTEMPTS)
+    if rescue:
+        logging.info(f"Rescue attempt for ID {article_id} after {prior[0]} rejected versions: {str(prior[1])[:120]}")
+    out = translator.write_article(eng_headline, eng_summary,
+                                   guidance=core.rescue_guidance(prior[1]) if rescue else None)
     hi_body, hi_title = out["body"], out["headline"]
     if not hi_body.strip():
         record_failure(None, None, None, article_id, "empty body")
@@ -335,14 +380,18 @@ def process_articles(translator, shard, num_shards, batch_size, deadline=None, f
             time.sleep(5)
             continue
 
-        # In-flight duplicate check against DB B (defense-in-depth)
+        # In-flight duplicate check against DB B (defense-in-depth) + earlier failures of this version
         already_done_ids = set()
+        prior_failures = {}
         try:
             c_b = get_translation_db_connection()
             cur_b = c_b.cursor()
             ph_b = ",".join("?" * len(chunk))
             cur_b.execute(f"SELECT article_id FROM translations WHERE article_id IN ({ph_b}) AND hi_version = ?", (*chunk, core.PROMPT_VERSION))
             already_done_ids = {r[0] for r in cur_b.fetchall()}
+            cur_b.execute(f"SELECT article_id, attempts, last_error FROM translation_failures WHERE article_id IN ({ph_b}) AND hi_version = ?",
+                          (*chunk, core.PROMPT_VERSION))
+            prior_failures = {r[0]: (r[1], r[2]) for r in cur_b.fetchall()}
             c_b.close()
         except Exception:
             already_done_ids = set()
@@ -356,7 +405,7 @@ def process_articles(translator, shard, num_shards, batch_size, deadline=None, f
                 continue
             logging.info(f"[{saved + failed + 1}/{len(ids)}] ID {article_id}: {str(eng_headline)[:50]}")
             try:
-                if _translate_one(translator, article_id, eng_headline, comp):
+                if _translate_one(translator, article_id, eng_headline, comp, prior_failures.get(article_id)):
                     saved += 1
                 else:
                     failed += 1
@@ -888,6 +937,7 @@ def main():
     has_more = False
 
     if shard == 0 and args.step == "all" and not args.test_run:
+        retry_given_up_once()
         sync_headlines()
 
     # 1. Explicit CLI step override
