@@ -510,7 +510,37 @@ def process_timelines(translator, shard, num_shards, batch_size, deadline=None):
 # ==============================================================================
 # --- UPSC CONTENT (optional, covered by timeline shards 16-19) ---
 # ==============================================================================
+def _ensure_upsc_flag(translated_ids_loader):
+    """upsc_articles.translated_hi (0/1) + index, so a worker reads only notes still to translate.
+    First time only: mark the notes already in upsc_translations (upsc_meta 'hi_flag_backfilled').
+    Safe to run from several workers at once."""
+    conn_u = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+    cur_u = conn_u.cursor()
+    cur_u.execute("PRAGMA table_info(upsc_articles)")
+    if "translated_hi" not in [r[1] for r in cur_u.fetchall()]:
+        try:
+            cur_u.execute("ALTER TABLE upsc_articles ADD COLUMN translated_hi INTEGER DEFAULT 0")
+        except Exception as e:  # another worker added it first
+            if "duplicate" not in str(e).lower():
+                raise
+    cur_u.execute("CREATE INDEX IF NOT EXISTS idx_upsc_trans_hi ON upsc_articles(translated_hi, published_at DESC)")
+    cur_u.execute("CREATE TABLE IF NOT EXISTS upsc_meta (key TEXT PRIMARY KEY, value TEXT)")
+    conn_u.commit()
+    cur_u.execute("SELECT value FROM upsc_meta WHERE key = 'hi_flag_backfilled'")
+    if not cur_u.fetchone():
+        ids = list(translated_ids_loader())
+        for i in range(0, len(ids), 400):
+            chunk = ids[i:i + 400]
+            cur_u.execute(f"UPDATE upsc_articles SET translated_hi = 1 WHERE article_id IN ({','.join('?' * len(chunk))})", chunk)
+        cur_u.execute("INSERT OR REPLACE INTO upsc_meta (key, value) VALUES ('hi_flag_backfilled', ?)", (str(int(time.time())),))
+        conn_u.commit()
+        logging.info(f"UPSC: marked {len(ids)} already-translated notes (one-time).")
+    conn_u.close()
+
+
 def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
+    """Translate UPSC notes of the last HINDI_UPSC_WINDOW_DAYS (120), newest first.
+    Uses upsc_articles.translated_hi: each query reads only notes still waiting for Hindi."""
     upsc_url = os.environ.get('SATYA_UPSC_DB_URL')
     upsc_token = os.environ.get('SATYA_UPSC_DB_TOKEN')
     if not upsc_url or not upsc_token:
@@ -531,22 +561,25 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
                 translated_at INTEGER
             )
         """)
-        cur_b.execute("SELECT article_id FROM upsc_translations")
-        done_ids = {r[0] for r in cur_b.fetchall()}
+        conn_b.commit()
         conn_b.close()
+
+        def translated_ids():
+            c = get_translation_db_connection()
+            cur = c.cursor()
+            cur.execute("SELECT article_id FROM upsc_translations")
+            out = [r[0] for r in cur.fetchall()]
+            c.close()
+            return out
+        _ensure_upsc_flag(translated_ids)
     except Exception as e:
-        logging.error(f"Check upsc_translations table failed: {e}")
+        logging.error(f"UPSC setup failed: {e}")
         return False, False
 
-    # Walk this worker's notes newest -> oldest within the window, translating the ones not done yet.
-    # (It used to re-read only the newest batch and stop once that batch was done, so notes older than
-    # the newest ~10 per worker were never translated.) Ids come from idx_upsc_pub alone; full rows are
-    # fetched only for notes that still need translating.
-    saved = 0
     window_days = int(os.environ.get("HINDI_UPSC_WINDOW_DAYS", 120))
     since = int(time.time()) - window_days * 86400
-    upper = None          # published_at of the oldest note seen so far
-    seen = set()          # ids already handled in this walk (translated, done before, or failed)
+    failed_ids = set()    # retried next run, not in a loop now
+    saved = 0
     while True:
         if deadline and time.time() >= deadline:
             logging.info("UPSC deadline reached — continuing in next run.")
@@ -555,16 +588,14 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
         try:
             conn_u = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
             cur_u = conn_u.cursor()
-            if upper is None:
-                cur_u.execute("SELECT article_id, published_at FROM upsc_articles WHERE published_at >= ? "
-                              "AND (article_id % ?) = ? ORDER BY published_at DESC LIMIT 500",
-                              (since, num_shards, shard))
-            else:
-                cur_u.execute("SELECT article_id, published_at FROM upsc_articles WHERE published_at >= ? "
-                              "AND published_at <= ? AND (article_id % ?) = ? ORDER BY published_at DESC LIMIT 500",
-                              (since, upper, num_shards, shard))
-            page = [r for r in cur_u.fetchall() if r[0] not in seen]
-            todo = [r[0] for r in page if r[0] not in done_ids][:batch_size]
+            skip = list(failed_ids)[:500]
+            cur_u.execute(
+                "SELECT article_id FROM upsc_articles WHERE translated_hi = 0 AND published_at >= ? "
+                "AND (article_id % ?) = ? "
+                + (f"AND article_id NOT IN ({','.join('?' * len(skip))}) " if skip else "")
+                + "ORDER BY published_at DESC LIMIT ?",
+                (since, num_shards, shard, *skip, batch_size))
+            todo = [r[0] for r in cur_u.fetchall()]
             rows = []
             if todo:
                 ph = ",".join("?" * len(todo))
@@ -577,20 +608,13 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
             time.sleep(5)
             continue
 
-        if not page:
+        if not rows:
             logging.info(f"All UPSC notes of the last {window_days} days are translated for worker {shard}/{num_shards}.")
             break
-        if not todo:
-            seen.update(r[0] for r in page)
-            upper = min(r[1] for r in page)
-            continue
-        seen.update(todo)   # a failed note is retried next run, not in a loop now
-        untranslated = rows
 
-        for art_id, why_news, fact_box, prelims_json, mains_q in untranslated:
+        for art_id, why_news, fact_box, prelims_json, mains_q in rows:
             if deadline and time.time() >= deadline:
                 return True, True
-
             try:
                 why_hi = translator.translate_upsc_field(why_news, "why_in_news") if hasattr(translator, "translate_upsc_field") else translator.en2hi_short(why_news) if why_news else ""
                 fact_hi = translator.translate_upsc_field(fact_box, "fact_box") if hasattr(translator, "translate_upsc_field") else translator.en2hi_short(fact_box) if fact_box else ""
@@ -620,10 +644,16 @@ def process_upsc(translator, shard, num_shards, batch_size, deadline=None):
                 )
                 conn_b.commit()
                 conn_b.close()
-                done_ids.add(art_id)
+
+                conn_u = _connect('SATYA_UPSC_DB_URL', 'SATYA_UPSC_DB_TOKEN', 'upsc.db')
+                cur_u = conn_u.cursor()
+                cur_u.execute("UPDATE upsc_articles SET translated_hi = 1 WHERE article_id = ?", (art_id,))
+                conn_u.commit()
+                conn_u.close()
                 saved += 1
                 logging.info(f"Saved UPSC note for article ID {art_id}")
             except Exception as ex:
+                failed_ids.add(art_id)
                 logging.error(f"Translate UPSC note ID {art_id} failed: {ex}")
 
     logging.info(f"UPSC done: saved {saved} notes.")
@@ -880,48 +910,34 @@ def main():
             has_more = has_more or more_e
             if not more_e and time.time() < (deadline - 300):
                 logging.info("Entities complete! Shard 0 now assisting with backlog news articles (0/20).")
-                r, more_b = process_articles(translator(), 0, 20, batch, deadline, backlog_only=True)
+                r, more_b = process_articles(translator(), 0, num_shards, batch, deadline, backlog_only=True)
                 ok = ok and r
                 has_more = has_more or more_b
 
-        elif 1 <= shard <= 15:
-            # 15 shards exclusively dedicated to Fresh News Articles & Headlines first
-            worker_shard = shard - 1
-            worker_num = 15
-            logging.info(f"=== Shard {shard}: Dedicated Articles Worker (Fresh: {worker_shard}/{worker_num}) ===")
-            r1, more_f = process_articles(translator(), worker_shard, worker_num, batch, deadline, fresh_only=True)
-            ok = ok and r1
-            has_more = has_more or more_f
-
-            # When fresh breaking news is complete, assist with backlog modulo 20
-            if not more_f and time.time() < (deadline - 300):
-                logging.info(f"Fresh articles complete! Shard {shard} now processing backlog ({shard}/20).")
-                r2, more_b = process_articles(translator(), shard, 20, batch, deadline, backlog_only=True)
-                ok = ok and r2
-                has_more = has_more or more_b
-
-        elif 16 <= shard <= 19:
-            # 4 shards exclusively dedicated to Timelines, Milestones & UPSC
-            worker_shard = shard - 16
-            worker_num = 4
-            logging.info(f"=== Shard {shard}: Dedicated Timelines & UPSC Worker ({worker_shard}/{worker_num}) ===")
-            r1, more_t = process_timelines(translator(), worker_shard, worker_num, batch, deadline)
-            r2, more_u = process_upsc(translator(), worker_shard, worker_num, batch, deadline)
-            ok = ok and r1 and r2
-            has_more = more_t or more_u
-
-            # When Timelines & UPSC complete, assist with backlog modulo 20
-            if not more_t and not more_u and time.time() < (deadline - 300):
-                logging.info(f"Timelines & UPSC complete! Shard {shard} now assisting with backlog news articles ({shard}/20).")
-                r3, more_b = process_articles(translator(), shard, 20, batch, deadline, backlog_only=True)
-                ok = ok and r3
-                has_more = has_more or more_b
         else:
-            worker_shard = shard
-            worker_num = num_shards
-            logging.info(f"=== Shard {shard}: Fallback Articles Worker ===")
-            r, has_more = process_articles(translator(), worker_shard, worker_num, batch, deadline)
-            ok = ok and r
+            # Shards 1..N-1 share every job, in priority order: fresh news first (split N-1 ways),
+            # then UPSC notes, then timelines, then the backlog (old / re-translations, split N ways
+            # together with shard 0). A shard moves to the next job only when its share of the
+            # previous one is done, so fresh news always goes first.
+            worker_shard = shard - 1
+            worker_num = num_shards - 1
+            logging.info(f"=== Shard {shard}: fresh news -> UPSC -> timelines -> backlog (worker {worker_shard}/{worker_num}) ===")
+            steps = [
+                ("fresh articles", lambda: process_articles(translator(), worker_shard, worker_num, batch, deadline, fresh_only=True)),
+                ("UPSC notes", lambda: process_upsc(translator(), worker_shard, worker_num, batch, deadline)),
+                ("timelines", lambda: process_timelines(translator(), worker_shard, worker_num, batch, deadline)),
+                ("backlog articles", lambda: process_articles(translator(), shard, num_shards, batch, deadline, backlog_only=True)),
+            ]
+            for name, step in steps:
+                if time.time() >= deadline - 300:
+                    has_more = True   # out of time before this step: next run continues
+                    break
+                r, more = step()
+                ok = ok and r
+                if more:
+                    has_more = True
+                    break         # this step isn't finished; don't start lower-priority work
+                logging.info(f"Shard {shard}: {name} done.")
 
     # 3. Small cluster or local/test run (< 20 shards)
     else:
