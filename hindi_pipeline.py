@@ -332,7 +332,7 @@ def _translate_one(translator, article_id, eng_headline, comp, prior=None):
         return False
     ok_title, _ = core.script_gate(hi_title)
     if not hi_title or not ok_title:
-        hi_title = hi_body.split("।")[0].strip()[:90]
+        hi_title = core.lead_headline(hi_body)
     elif os.environ.get("HINDI_HEADLINE_CHECK", "1") == "1":
         # Meaning check: the Hindi headline must say what the English one says (no inverted claims)
         hi_title, how = translator.verified_headline(eng_headline, hi_title, hi_body)
@@ -916,7 +916,7 @@ def process_upsc_titles(translator, shard, num_shards, batch_size, deadline=None
                     hi = ""
                 hi, how = translator.verified_headline(en, hi, why_hi) if hi else ("", "")
                 if not hi and why_hi:
-                    hi, how = why_hi.split("।")[0].strip()[:90], "fallback: headline failed the gates"
+                    hi, how = core.lead_headline(why_hi), "fallback: headline failed the gates"
                 if not hi:
                     raise ValueError("no usable Hindi headline")
                 ct = get_translation_db_connection()

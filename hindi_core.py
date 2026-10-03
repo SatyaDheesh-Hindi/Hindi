@@ -186,6 +186,18 @@ def fix_script(hi):
     return _GLUED_B.sub(r"\1 \2", _GLUED_A.sub(r"\1 \2", hi or ""))
 
 
+def lead_headline(text, n=90):
+    """A headline from the first sentence of Hindi text, cut at a clause or word boundary (never mid-word)."""
+    first = re.split(r"[।?!]", text or "", 1)[0].strip()
+    if len(first) <= n:
+        return first
+    for sep in (", ", " - ", " — ", " "):
+        k = first.rfind(sep, 0, n)
+        if k > n // 2:
+            return first[:k].rstrip(" ,-—")
+    return first[:n]
+
+
 def problem_sentences(hi):
     """Sentences of `hi` that fail the script or gap check, each with what is wrong (for a repair call)."""
     out = []
@@ -887,7 +899,9 @@ class Translator:
             same2, _ = self.headline_same(en, alt)
             if same2:
                 return alt, f"redone: {problem}"
-        first = (body_hi or "").split("।")[0].strip()[:90]
+        if dropped and self.headline_same(en, hi)[0]:
+            return hi, f"kept: {problem}"  # a missing place beats a cut-off first sentence
+        first = lead_headline(body_hi)
         return (first or hi), f"fallback: {problem}"
 
     def translate_upsc_field(self, text, field_type):
