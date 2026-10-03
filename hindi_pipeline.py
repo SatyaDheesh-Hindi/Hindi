@@ -165,11 +165,12 @@ def _redo_ids(shard, num_shards):
     return {i for i in ids if i % num_shards == shard}
 
 
-def retry_given_up_once(marker="retry-2026-10-03"):
+def retry_given_up_once(marker="retry-2026-10-03b"):
     """One-time: articles given up on (3 failures) before the fixes of 3 Oct (sentence repair for
     dropped words and half-English names, glued acronyms, Greek letters, name-check spacing/vowel
     variants) get attempts reset to 2: one normal attempt under the current gates, then the rescue
-    attempt. (Earlier marker: retry-2026-10-02.)"""
+    attempt. (Earlier markers: retry-2026-10-02, retry-2026-10-03; 'b' re-queues after the gap
+    check stopped flagging 'के को-फाउंडर' and initials like 'के.एम.'.)"""
     try:
         conn_b = get_translation_db_connection()
         cur_b = conn_b.cursor()

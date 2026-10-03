@@ -164,10 +164,11 @@ def entity_gate(en, hi, back="", is_gemma=True):
 
 # Telltale gaps left when a word goes missing: two case markers in a row
 # ("ऑफिस के का कहना"), "and of" with no noun ("ट्रंप और ऑफ जस्टिस"), stray commas.
-_GAP_RE = re.compile(r"(?<![\u0900-\u097F])(के|का|की|ने|को)\s+(के|का|की|ने|को)(?![\u0900-\u097F])"
+# The second word must stand alone: 'के को-फाउंडर' (co-founder) and 'ने के.एम. शाजी' (initials) are fine.
+_GAP_RE = re.compile(r"(?<![\u0900-\u097F])(के|का|की|ने|को)\s+(के|का|की|ने|को)(?![\u0900-\u097F.\-])"
                      r"|(?<![\u0900-\u097F])(और|व|तथा)\s+ऑफ(?![\u0900-\u097F])|,\s*,|\s{2,}")
 
-_GAP_OK = {("ने", "की")}   # "रंजिता घोष ने की" — की is the verb 'did', not a case marker
+_GAP_OK = {("ने", "की"), ("को", "की")}  # also "24 अगस्त को की थी" (की = did);   # "रंजिता घोष ने की" — की is the verb 'did', not a case marker
 
 def gap_gate(hi):
     for m in _GAP_RE.finditer(hi or ""):
