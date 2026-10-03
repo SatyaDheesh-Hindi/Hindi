@@ -854,18 +854,35 @@ class Translator:
             return True, ""  # unreadable verdict: don't block on the checker itself
         return bool(d.get("same")), str(d.get("problem") or "")[:160]
 
+    def headline_dropped(self, en, hi):
+        """Curated names (prompts/names_hi.json: states, cities, people, institutions) that the English headline
+        names and the Hindi headline leaves out. The meaning check alone missed partial omissions."""
+        known = getattr(self, "known_names", {}) or {}
+        out = []
+        for e, h in known.items():
+            if len(e) >= 4 and re.search(r"(?<![A-Za-z])" + re.escape(e) + r"(?![A-Za-z])", en or "") \
+                    and not name_gate([(e, h)], hi)[0]:
+                out.append(e)
+        # 'Punjab and Haryana High Court' names one court, not two places: keep only names not inside a longer one
+        return [e for e in out if not any(e != o and e in o for o in out)]
+
     def verified_headline(self, en, hi, body_hi=""):
         """Keep the Hindi headline only if it says what the English one says; otherwise translate the headline
         on its own and check again; last resort, the first sentence of the (gated) Hindi body.
         Returns (headline, how) with how in ok / redone / fallback / skip."""
         if not (en or "").strip() or not (hi or "").strip():
             return hi, "skip"
-        same, problem = self.headline_same(en, hi)
+        dropped = self.headline_dropped(en, hi)
+        if dropped:  # a place or person of the English headline is missing (e.g. 'Punjab' left out)
+            same, problem = False, "leaves out " + ", ".join(dropped)
+        else:
+            same, problem = self.headline_same(en, hi)
         if same:
             return hi, "ok"
         alt = self.en2hi_short(en)
         latin = lambda t: len(re.findall(r"\b[a-z][A-Za-z]{2,}\b|\b[A-Z][a-z]{2,}\b", t or ""))  # not acronyms
-        if alt and script_gate(alt)[0] and number_gate(en, alt)[0] and latin(alt) <= latin(hi):
+        if (alt and script_gate(alt)[0] and number_gate(en, alt)[0] and latin(alt) <= latin(hi)
+                and not self.headline_dropped(en, alt)):
             same2, _ = self.headline_same(en, alt)
             if same2:
                 return alt, f"redone: {problem}"
