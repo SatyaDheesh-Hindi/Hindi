@@ -165,10 +165,11 @@ def _redo_ids(shard, num_shards):
     return {i for i in ids if i % num_shards == shard}
 
 
-def retry_given_up_once(marker="retry-2026-10-02"):
-    """One-time: articles given up on (3 failures) before the gate fixes of 2 Oct (Indian number
-    format, hyphenated English terms, names gate on curated spellings only) get attempts reset
-    to 2: one normal attempt under the current gates, then the rescue attempt."""
+def retry_given_up_once(marker="retry-2026-10-03"):
+    """One-time: articles given up on (3 failures) before the fixes of 3 Oct (sentence repair for
+    dropped words and half-English names, glued acronyms, Greek letters, name-check spacing/vowel
+    variants) get attempts reset to 2: one normal attempt under the current gates, then the rescue
+    attempt. (Earlier marker: retry-2026-10-02.)"""
     try:
         conn_b = get_translation_db_connection()
         cur_b = conn_b.cursor()
@@ -306,6 +307,20 @@ def _translate_one(translator, article_id, eng_headline, comp, prior=None):
 
     # 2. Gates: every number kept, Devanagari/Latin script only, no dropped-word gaps
     ok_body, rb = core.verify(eng_summary, hi_body, is_gemma=True)
+    if not ok_body and rb["number_ok"] and (not rb["gap_ok"] or not rb["script_ok"]):
+        # Repair only the flagged sentences (a dropped word, a half-English name) instead of
+        # throwing away a translation that is otherwise fine.
+        try:
+            fixed = translator.repair(eng_headline, eng_summary, hi_body)
+            ok2, rb2 = core.verify(eng_summary, fixed, is_gemma=True)
+            logging.info(f"Repair ID {article_id}: {'fixed' if ok2 else 'still failing'} ({rb.get('gap') or rb.get('bad_chars')})")
+            if ok2:
+                hi_body, ok_body, rb = fixed, ok2, rb2
+                if out.get("missing_names"):
+                    out["missing_names"] = core.name_gate([tuple(x.split(" = ", 1)) for x in out.get("names", [])
+                                                           if x in out["missing_names"]], hi_body)[1]
+        except Exception as e:
+            logging.warning(f"Repair failed ID {article_id}: {e}")
     if not ok_body:
         logging.warning(f"Body gate FAIL ID {article_id}: {rb}")
         record_failure(None, None, None, article_id, f"body gate: {rb}")

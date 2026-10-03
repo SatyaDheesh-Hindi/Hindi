@@ -66,6 +66,12 @@ def main():
             out, err = {"headline": "", "body": "", "attempts": 0, "missing_numbers": []}, str(e)[:300]
         secs = round(time.time() - t0, 1)
         ok, reasons = core.verify(en, out["body"], is_gemma=True)
+        if not ok and not err and reasons["number_ok"] and (not reasons["gap_ok"] or not reasons["script_ok"]):
+            fixed = t.repair(title, en, out["body"])            # same sentence repair as the service
+            ok2, r2 = core.verify(en, fixed, is_gemma=True)
+            out["repair"] = f"{'fixed' if ok2 else 'still failing'}: {reasons.get('gap') or reasons.get('bad_chars')}"
+            if ok2:
+                out["before_repair"], out["body"], ok, reasons = out["body"], fixed, ok2, r2
         results.append({
             "id": i, "category": cat, "en_title": title, "en_body": en,
             "new": out, "current": current.get(i), "seconds": secs, "error": err,

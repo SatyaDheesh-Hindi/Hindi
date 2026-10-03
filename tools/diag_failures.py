@@ -9,6 +9,7 @@ b = conn("SATYA_TRANSLATION_DB_URL", "SATYA_TRANSLATION_DB_TOKEN").cursor()
 b.execute("SELECT article_id, attempts, last_error FROM translation_failures WHERE attempts >= 3 ORDER BY article_id DESC")
 rows = b.fetchall()
 print("given up:", len(rows))
+print("ids:", ",".join(str(r[0]) for r in rows))
 kind = lambda e: re.sub(r"[0-9]+", "N", (e or "").split(":")[0].strip())[:40]
 print("by reason:", collections.Counter(kind(r[2]) for r in rows).most_common())
 ids = [r[0] for r in rows]

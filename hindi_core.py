@@ -92,7 +92,7 @@ def script_gate(hi):
     for ch in (hi or ""):
         if ch.isalpha():
             o = ord(ch)
-            if not (0x0900 <= o <= 0x097F or o < 0x250):
+            if not (0x0900 <= o <= 0x097F or o < 0x250 or 0x0391 <= o <= 0x03C9):
                 bad.add(ch)
     return (not bad), "".join(sorted(bad))
 
@@ -139,7 +139,7 @@ def script_gate(hi):
             bad.add("\ufffd")
         elif ch.isalpha():
             o = ord(ch)
-            if not (0x0900 <= o <= 0x097F or o < 0x250):
+            if not (0x0900 <= o <= 0x097F or o < 0x250 or 0x0391 <= o <= 0x03C9):
                 bad.add(ch)
     # Check for single words mixing Devanagari and Latin letters (e.g. 'अमरinder').
     # Delimiters like hyphens, slashes, or quotes (e.g. 'AI-आधारित', 'COVID-19') connect distinct tokens, which is valid.
@@ -175,6 +175,33 @@ def gap_gate(hi):
             continue
         return False, m.group(0).strip()
     return True, ""
+
+# An English acronym glued to a Hindi word ('ETब्यूरो', 'इंडियाAI', 'ब्लूमबर्गNEF'): only a missing space.
+_GLUED_A = re.compile(r"([\u0900-\u097F])([A-Z]{2,})(?![a-z])")
+_GLUED_B = re.compile(r"(?<![A-Za-z])([A-Z]{2,})([\u0900-\u097F])")
+
+
+def fix_script(hi):
+    return _GLUED_B.sub(r"\1 \2", _GLUED_A.sub(r"\1 \2", hi or ""))
+
+
+def problem_sentences(hi):
+    """Sentences of `hi` that fail the script or gap check, each with what is wrong (for a repair call)."""
+    out = []
+    for sent in re.split(r"(?<=[।?!])\s+|\n+", hi or ""):
+        if not sent.strip():
+            continue
+        ok_s, bad = script_gate(sent)
+        ok_g, gap = gap_gate(sent)
+        why = []
+        if not ok_s:
+            why.append(f"broken or mixed-script word(s): {bad}")
+        if not ok_g and gap.strip():
+            why.append(f"a word is missing before '{gap}'")
+        if why:
+            out.append((sent, "; ".join(why)))
+    return out
+
 
 def verify(en, hi, back="", is_gemma=True):
     """Run all gates. Returns (passed, reasons_dict)."""
@@ -497,6 +524,12 @@ def trim_wrapping_quotes(x):
     return x
 
 
+REPAIR_PROMPT = """One sentence of our Hindi version of this news has a problem (shown below).
+Rewrite ONLY that sentence in correct, complete Hindi: every name fully in Devanagari (an English
+abbreviation such as AI or IPO may stay as a separate word), no word left out, every number kept.
+Say the same thing as the English. Reply with the corrected Hindi sentence only."""
+
+
 NAMES_PROMPT = """List the proper names in this English news: people, places, organisations, companies, parties, films, shows, books and newspapers.
 For each, give the spelling Hindi newspapers use, in Devanagari. Transliterate by sound; never replace a name with a Hindi word.
 Initials become Hindi letters with dots: D.K. -> डी.के., M -> एम.
@@ -583,17 +616,23 @@ HEADLINE: <Hindi headline>
 BODY: <Hindi news>"""
 
 
+_VOWEL_FOLD = str.maketrans({"\u0940": "\u093F", "\u0942": "\u0941", "\u0908": "\u0907", "\u090A": "\u0909"})
+_NOT_NAMES = {"parliament", "assembly", "legislative assembly"}   # common nouns ('Member of Parliament' = सांसद)
+
+
 def name_gate(names, hi):
     """Each glossary name's last Devanagari word (the surname / key word) must appear in the
     Hindi. Only short names (<= 4 words) are enforced; long organisation names may be
     paraphrased naturally."""
     missing = []
+    norm = lambda t: re.sub(r"\s+", "", t).translate(_VOWEL_FOLD)
+    hay = norm(hi or "")
     for e, h in names:
-        if len(e.split()) > 4:
+        if len(e.split()) > 4 or e.lower() in _NOT_NAMES:
             continue
         words = [w.strip(".") for w in h.split() if re.search(r"[\u0900-\u097F]", w)]
         key = words[-1] if words else ""
-        if len(key) >= 2 and key not in (hi or ""):
+        if len(key) >= 2 and key not in (hi or "") and norm(h) not in hay and norm(key) not in hay:
             missing.append(f"{e} = {h}")
     return (not missing), missing
 
@@ -715,7 +754,7 @@ class Translator:
         budget = min(1400, 300 + len(text))
         raw = self._chat(msgs, budget, temperature=0.4 if guidance else 0.3)
         res = self._parse_article(raw)
-        fix = lambda x: fix_initials(trim_wrapping_quotes(x))
+        fix = lambda x: fix_script(fix_initials(trim_wrapping_quotes(x)))
         post = lambda r: {"headline": fix(r.get("headline")).rstrip("।. "), "body": fix(r.get("body"))}
         out = post(res)
         attempts = 1
@@ -769,6 +808,22 @@ class Translator:
         msgs.append({"role": "user", "content": content})
         res = self._parse_article(self._chat(msgs, budget, temperature=0.2))
         return {"headline": fix(res.get("headline")).rstrip("।. "), "body": fix(res.get("body"))}
+
+    def repair(self, title, text, hi, max_sentences=4):
+        """Rewrite only the sentences the script/gap checks flag, one short call each; the rest of the
+        Hindi is untouched. Returns the (possibly) repaired Hindi."""
+        for sent, why in problem_sentences(hi)[:max_sentences]:
+            msgs = self._article_messages("", "")[:-1]      # same cached prefix
+            msgs.append({"role": "user", "content": (
+                REPAIR_PROMPT + "\n\nENGLISH ARTICLE\n" + _article_msg(title, text)
+                + f"\n\nHINDI SENTENCE\n{sent}\n\nPROBLEM\n{why}")})
+            new = fix_script(fix_initials(trim_wrapping_quotes(self._chat(msgs, 220, temperature=0.2))))
+            new = re.sub(r"^(HINDI|SENTENCE|BODY)\s*:\s*", "", new.strip()).split("\n")[0].strip()
+            ok_s, _ = script_gate(new)
+            ok_g, _ = gap_gate(new)
+            if new and ok_s and ok_g and 0.5 <= len(new) / max(1, len(sent)) <= 1.8:
+                hi = hi.replace(sent, new, 1)
+        return hi
 
     def en2hi(self, text):
         return self.write_article("", text)["body"]
