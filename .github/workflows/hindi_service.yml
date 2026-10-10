@@ -1,0 +1,255 @@
+name: Satya Hindi Translation Service
+
+on:
+  # Safety net only: each run chains the next one while work remains.
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      test_run:
+        description: 'Process a small batch (5 items) for testing'
+        type: boolean
+        required: false
+        default: false
+      shards:
+        description: 'Parallel runners (each takes id % N)'
+        required: false
+        default: '20'
+      loop_count:
+        description: 'Internal: self-trigger loop depth (do not set manually)'
+        required: false
+        default: '0'
+  repository_dispatch:
+    types: [trigger-hindi-translation]
+
+# Never cancel a running batch; a newer trigger waits for it to finish.
+concurrency:
+  group: satya-hindi-translations
+  cancel-in-progress: false
+
+env:
+  CORE_TOKEN: ${{ secrets.CORE_TOKEN }}
+  PYTHONPATH: ${{ github.workspace }}/.ci
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.set-shards.outputs.shards }}
+      n: ${{ steps.set-shards.outputs.n }}
+    steps:
+      - id: set-shards
+        run: |
+          N="${{ github.event.inputs.shards || '20' }}"
+          if [ "${{ github.event.inputs.test_run }}" = "true" ]; then N=1; fi
+          echo "n=$N" >> $GITHUB_OUTPUT
+          echo "shards=$(python3 -c "print(list(range($N)))")" >> $GITHUB_OUTPUT
+
+  translate:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 135
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: ${{ fromJson(needs.setup.outputs.shards) }}
+    permissions:
+      actions: write
+      contents: write
+
+    steps:
+      - name: Validate Database Connections
+        env:
+          SATYA_DB_URL: ${{ secrets.SATYA_DB_URL }}
+          SATYA_DB_TOKEN: ${{ secrets.SATYA_DB_TOKEN }}
+          SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
+          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
+        run: |
+          echo "Debugging secret lengths..."
+          echo "Main DB URL length: ${#SATYA_DB_URL}"
+          echo "Main DB Token length: ${#SATYA_DB_TOKEN}"
+          echo "Trans DB URL length: ${#SATYA_TRANSLATION_DB_URL}"
+          echo "Trans DB Token length: ${#SATYA_TRANSLATION_DB_TOKEN}"
+
+          echo "Verifying Main Database A connection..."
+          URL_A=$(echo "$SATYA_DB_URL" | xargs | tr -d '"'\''')
+          TOKEN_A=$(echo "$SATYA_DB_TOKEN" | xargs | tr -d '"'\''')
+          HTTP_URL_A="${URL_A/libsql:\/\//https:\/\/}"
+          RESPONSE_A=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN_A" \
+            -H "Content-Type: application/json" \
+            -d '{"requests":[{"type":"execute","stmt":{"sql":"SELECT 1"}}]}' \
+            "$HTTP_URL_A/v2/pipeline")
+          if [ "$RESPONSE_A" -ne 200 ]; then
+            echo "::error::Main Database A connection failed with HTTP status code $RESPONSE_A. Check your SATYA_DB_URL and SATYA_DB_TOKEN secrets."
+            exit 1
+          fi
+          echo "Main Database A connection verified successfully!"
+
+          echo "Verifying Translation Database B connection..."
+          URL_B=$(echo "$SATYA_TRANSLATION_DB_URL" | xargs | tr -d '"'\''')
+          TOKEN_B=$(echo "$SATYA_TRANSLATION_DB_TOKEN" | xargs | tr -d '"'\''')
+          HTTP_URL_B="${URL_B/libsql:\/\//https:\/\/}"
+          RESPONSE_B=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN_B" \
+            -H "Content-Type: application/json" \
+            -d '{"requests":[{"type":"execute","stmt":{"sql":"SELECT 1"}}]}' \
+            "$HTTP_URL_B/v2/pipeline")
+          if [ "$RESPONSE_B" -ne 200 ]; then
+            echo "::error::Translation Database B connection failed with HTTP status code $RESPONSE_B. Check your SATYA_TRANSLATION_DB_URL and SATYA_TRANSLATION_DB_TOKEN secrets."
+            exit 1
+          fi
+          echo "Translation Database B connection verified successfully!"
+
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}-core
+          token: ${{ secrets.CORE_TOKEN }}
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # prebuilt CPU wheels; portable source build as fallback. (The old AVX-off build
+          # was several times slower; the "Illegal instruction" came from a cached native wheel.)
+          CMAKE_ARGS="-DGGML_NATIVE=OFF" pip install -r requirements.txt \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --no-cache-dir
+
+      - name: Clone Entity Library (shard 0 only)
+        if: ${{ matrix.shard == 0 }}
+        env:
+          GITHUB_PAT_CLASSIC: ${{ secrets.PAT_CLASSIC }}
+        run: |
+          git clone "https://${GITHUB_PAT_CLASSIC}@github.com/raam-07/satya-entity-library.git" temp_entity_lib
+
+      - name: Cache Translation Model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ vars.HINDI_MODEL_FILE || 'gemma-4-12b-it-Q4_K_M.gguf' }}
+
+      - name: Run Hindi Translation Pipeline
+        id: run-pipeline
+        env:
+          SATYA_DB_URL: ${{ secrets.SATYA_DB_URL }}
+          SATYA_DB_TOKEN: ${{ secrets.SATYA_DB_TOKEN }}
+          SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
+          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
+          SATYA_UPSC_DB_URL: ${{ secrets.SATYA_UPSC_DB_URL }}
+          SATYA_UPSC_DB_TOKEN: ${{ secrets.SATYA_UPSC_DB_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGINGFACE_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
+          HINDI_MODEL_REPO: ${{ vars.HINDI_MODEL_REPO || 'unsloth/gemma-4-12b-it-GGUF' }}
+          HINDI_MODEL_FILE: ${{ vars.HINDI_MODEL_FILE || 'gemma-4-12b-it-Q4_K_M.gguf' }}
+          SHARD_ID: ${{ matrix.shard }}
+          NUM_SHARDS: ${{ needs.setup.outputs.n }}
+          HINDI_WINDOW_DAYS: ${{ vars.HINDI_WINDOW_DAYS || '30' }}
+          HINDI_RUN_MINUTES: ${{ vars.HINDI_RUN_MINUTES || '110' }}
+          SATYA_ENTITY_LIBRARY_DIR: ./temp_entity_lib
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.test_run }}" = "true" ] || [ "${{ github.event.client_payload.test_run }}" = "true" ]; then
+            ARGS="--test-run"
+          fi
+          
+          set -o pipefail   # a crash must fail the step, not hide behind `tee`
+          python3 hindi_pipeline.py --shard ${{ matrix.shard }} --num-shards ${{ needs.setup.outputs.n }} $ARGS 2>&1 | tee pipeline_output.log
+          
+          mkdir -p status
+          if grep -qx "has_more=true" pipeline_output.log; then
+            echo true > status/more_${{ matrix.shard }}
+          else
+            echo false > status/more_${{ matrix.shard }}
+          fi
+          if grep -qE "Saved (ID|event|UPSC note)" pipeline_output.log; then
+            echo true > status/saved_${{ matrix.shard }}
+          fi
+          grep -E '^articles_(saved|remaining)=' pipeline_output.log | tee -a $GITHUB_STEP_SUMMARY || true
+
+      - name: Report shard status
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: more-${{ matrix.shard }}
+          path: status/
+          if-no-files-found: ignore
+
+      - name: Commit and Push Compiled Entity library
+        if: ${{ matrix.shard == 0 && !cancelled() }}
+        run: |
+          git config --global user.email "satya-bot@github.com"
+          git config --global user.name "Satya Bot"
+
+          # The pipeline wrote entities_hi.json directly into the pre-cloned
+          # temp_entity_lib (via SATYA_ENTITY_LIBRARY_DIR).
+          if [ -f "temp_entity_lib/entities_hi.json" ]; then
+            cd temp_entity_lib
+            git add entities_hi.json
+            if ! git diff --staged --quiet; then
+              git commit -m "Auto-compile entities_hi.json [$(date '+%Y-%m-%d')]"
+              git pull --rebase origin main
+              git push origin main
+            else
+              echo "No changes in entities_hi.json"
+            fi
+          else
+            echo "::warning::entities_hi.json was not generated (check pipeline logs for the entities stage)."
+          fi
+
+  chain:
+    needs: [setup, translate]
+    if: ${{ !cancelled() && github.event.inputs.test_run != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: more-*
+          merge-multiple: true
+          path: status
+      - name: Refresh the site's Hindi pages
+        # Only when this run translated something. The site refreshes just its Hindi caches
+        # (tag 'hi', at most every 2 hours); English pages are refreshed by the classifier.
+        env:
+          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+        run: |
+          if ! grep -qx true status/saved_* 2>/dev/null; then
+            echo "Nothing new translated - no refresh."; exit 0
+          fi
+          if [ -z "$REVALIDATE_SECRET" ]; then
+            echo "::warning::REVALIDATE_SECRET is not set in this repo - Hindi pages refresh only with the site's 4-hourly refresh."; exit 0
+          fi
+          curl -sS -m 60 -X POST "https://satyadheesh.in/api/revalidate?tag=hi&secret=${REVALIDATE_SECRET}" || echo "::warning::refresh call failed"
+          echo
+
+      - name: Trigger next run if any shard has work left
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          MAX_LOOPS: 60
+        run: |
+          cat status/* 2>/dev/null || true
+          if ! grep -qx true status/* 2>/dev/null; then
+            echo "All shards done — nothing to chain."; exit 0
+          fi
+          LOOP=$(( ${{ github.event.inputs.loop_count || '0' }} + 1 ))
+          if [ "$LOOP" -gt "$MAX_LOOPS" ]; then
+            echo "::warning::Loop cap $MAX_LOOPS reached; the 6-hourly schedule resumes."; exit 0
+          fi
+          echo "Work remains — dispatching loop $LOOP"
+          gh workflow run hindi_service.yml -R ${{ github.repository }} --ref ${{ github.ref_name }} \
+            -f shards=${{ needs.setup.outputs.n }} -f loop_count=$LOOP

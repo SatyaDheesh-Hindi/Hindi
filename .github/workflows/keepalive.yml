@@ -1,0 +1,26 @@
+name: Keepalive
+
+# Keeps scheduled workflows active: an empty commit when the last commit is 40+ days old.
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Empty commit when quiet for 40 days
+        run: |
+          DAYS=$(( ($(date +%s) - $(git log -1 --format=%ct)) / 86400 ))
+          if [ "$DAYS" -gt 40 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -qm "keepalive" && git push -q
+          else
+            echo "last commit $DAYS days ago; nothing to do"
+          fi
