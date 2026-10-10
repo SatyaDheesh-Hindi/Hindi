@@ -1,0 +1,52 @@
+name: Hindi redo (UPSC notes and kits)
+
+# Marks recent UPSC notes and study kits for a fresh Hindi translation after a style change.
+# Dry run (counts only) unless apply is ticked; output goes to the diag-reports branch.
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Notes published in the last N days'
+        default: '10'
+      apply:
+        description: 'Apply (otherwise counts only)'
+        type: boolean
+        default: false
+
+env:
+  CORE_TOKEN: ${{ secrets.CORE_TOKEN }}
+
+jobs:
+  redo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}-core
+          token: ${{ secrets.CORE_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install libsql
+      - name: Run
+        env:
+          SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
+          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
+          SATYA_UPSC_DB_URL: ${{ secrets.SATYA_UPSC_DB_URL }}
+          SATYA_UPSC_DB_TOKEN: ${{ secrets.SATYA_UPSC_DB_TOKEN }}
+          DAYS: ${{ github.event.inputs.days }}
+          APPLY: ${{ github.event.inputs.apply }}
+        run: python tools/redo_upsc_hi.py 2>&1 | tee /tmp/diag.md
+      - name: Publish
+        if: ${{ always() }}
+        env:
+          RUN: ${{ github.run_id }}
+        run: |
+          set -e
+          rm -rf /tmp/wt && mkdir /tmp/wt && cd /tmp/wt && git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${CORE_TOKEN}@github.com/${GITHUB_REPOSITORY}-core.git"
+          if git fetch -q --depth 1 origin diag-reports; then git checkout -q -b diag-reports FETCH_HEAD; else git checkout -q --orphan diag-reports; fi
+          cp /tmp/diag.md latest.md && git add -A && git commit -qm "redo $RUN" && git push -q origin HEAD:diag-reports
