@@ -2,8 +2,6 @@ name: Satya Hindi Translation Service
 
 on:
   # Safety net only: each run chains the next one while work remains.
-  schedule:
-    - cron: '17 */6 * * *'
   workflow_dispatch:
     inputs:
       test_run:
@@ -248,7 +246,7 @@ jobs:
           fi
           LOOP=$(( ${{ github.event.inputs.loop_count || '0' }} + 1 ))
           if [ "$LOOP" -gt "$MAX_LOOPS" ]; then
-            echo "::warning::Loop cap $MAX_LOOPS reached; the 6-hourly schedule resumes."; exit 0
+            echo "::warning::Loop cap $MAX_LOOPS reached; the orchestrator starts the next round within 6 hours."; exit 0
           fi
           echo "Work remains — dispatching loop $LOOP"
           gh workflow run hindi_service.yml -R ${{ github.repository }} --ref ${{ github.ref_name }} \
