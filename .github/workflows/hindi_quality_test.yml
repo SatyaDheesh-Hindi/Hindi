@@ -110,8 +110,8 @@ jobs:
         env:
           SATYA_DB_URL: ${{ secrets.SATYA_DB_URL }}
           SATYA_DB_TOKEN: ${{ secrets.SATYA_DB_TOKEN }}
-          SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
-          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
+          SATYA_TRANSLATION_DB_URL: ${{ secrets.NEW_TRANSLATION_DB_URL }}
+          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.NEW_TRANSLATION_DB_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python quality/run_quality.py --shard ${{ matrix.shard }}/${{ needs.setup.outputs.n }} --ids "${{ needs.setup.outputs.ids }}" --out qout/${{ matrix.shard }}.json
       - uses: actions/upload-artifact@v4

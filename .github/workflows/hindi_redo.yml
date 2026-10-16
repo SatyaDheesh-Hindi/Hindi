@@ -31,10 +31,10 @@ jobs:
       - run: pip install libsql
       - name: Run
         env:
-          SATYA_TRANSLATION_DB_URL: ${{ secrets.SATYA_TRANSLATION_DB_URL }}
-          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.SATYA_TRANSLATION_DB_TOKEN }}
-          SATYA_UPSC_DB_URL: ${{ secrets.SATYA_UPSC_DB_URL }}
-          SATYA_UPSC_DB_TOKEN: ${{ secrets.SATYA_UPSC_DB_TOKEN }}
+          SATYA_TRANSLATION_DB_URL: ${{ secrets.NEW_TRANSLATION_DB_URL }}
+          SATYA_TRANSLATION_DB_TOKEN: ${{ secrets.NEW_TRANSLATION_DB_TOKEN }}
+          SATYA_UPSC_DB_URL: ${{ secrets.NEW_UPSC_DB_URL }}
+          SATYA_UPSC_DB_TOKEN: ${{ secrets.NEW_UPSC_DB_TOKEN }}
           DAYS: ${{ github.event.inputs.days }}
           APPLY: ${{ github.event.inputs.apply }}
         run: python tools/redo_upsc_hi.py 2>&1 | tee /tmp/diag.md
